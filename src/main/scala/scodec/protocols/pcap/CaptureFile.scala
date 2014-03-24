@@ -15,7 +15,6 @@ object CaptureFile {
   implicit val codec: Codec[CaptureFile] = "capture-file" | {
     Codec[GlobalHeader] >>:~ { hdr =>
       implicit val ordering = hdr.ordering
-      val record = Codec[Record]
-      repeated(record).hlist
+      repeated(Codec[Record]).hlist
   }}.as[CaptureFile]
 }

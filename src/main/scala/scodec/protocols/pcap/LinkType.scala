@@ -16,6 +16,7 @@ object LinkType {
   case object Raw extends LinkType
   case object IPv4 extends LinkType
   case object IPv6 extends LinkType
+  case object MPEG2TS extends LinkType
   case class Unknown(value: Long) extends LinkType
 
   def toLong(lt: LinkType): Long = lt match {
@@ -24,6 +25,7 @@ object LinkType {
     case Raw => 101
     case IPv4 => 228
     case IPv6 => 229
+    case MPEG2TS => 243
     case Unknown(value) => value
   }
 
@@ -33,6 +35,7 @@ object LinkType {
     case 101 => Raw
     case 228 => IPv4
     case 229 => IPv6
+    case 243 => MPEG2TS
     case other => Unknown(other)
   }
 
