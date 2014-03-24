@@ -13,7 +13,7 @@ case class GlobalHeader(
   thiszone: Int,
   sigfigs: Long,
   snaplen: Long,
-  network: Long)
+  network: LinkType)
 
 object GlobalHeader {
   implicit val iso = Iso.hlist(GlobalHeader.apply _, GlobalHeader.unapply _)
@@ -36,12 +36,12 @@ object GlobalHeader {
   }
 
   implicit val codec: Codec[GlobalHeader] = "global-header" | {
-    ("magic_number"  | byteOrdering ) >>:~ { implicit ordering =>
-    ("version_major" | guint16      ) ::
-    ("version_minor" | guint16      ) ::
-    ("thiszone"      | gint32       ) ::
-    ("sigfigs"       | guint32      ) ::
-    ("snaplen"       | guint32      ) ::
-    ("network"       | guint32      )
+    ("magic_number"  | byteOrdering    ) >>:~ { implicit ordering =>
+    ("version_major" | guint16         ) ::
+    ("version_minor" | guint16         ) ::
+    ("thiszone"      | gint32          ) ::
+    ("sigfigs"       | guint32         ) ::
+    ("snaplen"       | guint32         ) ::
+    ("network"       | Codec[LinkType] )
   }}.as[GlobalHeader]
 }

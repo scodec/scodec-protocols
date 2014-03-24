@@ -12,6 +12,7 @@ case class RecordHeader(
   includedLength: Long,
   originalLength: Long) {
   def timestamp: Double = RecordHeader.timestamp(timestampSeconds, timestampMicros)
+  def fullPayload: Boolean = includedLength == originalLength
 }
 
 object RecordHeader {
