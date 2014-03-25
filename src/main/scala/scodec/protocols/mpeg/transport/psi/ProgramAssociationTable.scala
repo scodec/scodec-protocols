@@ -3,13 +3,12 @@ package transport
 package psi
 
 import scala.collection.immutable.IndexedSeq
-import scalaz.\/
+import scalaz.{ \/, NonEmptyList }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
 import scodec.Codec
 import scodec.bits._
 import scodec.codecs._
-import shapeless.Iso
 
 case class ProgramAssociationTable(
   tsid: TransportStreamId,
@@ -31,14 +30,13 @@ object ProgramAssociationTable {
   }
 
   // TODO validate section data
-  def fromSections(sections: IndexedSeq[ProgramAssociationSection]): String \/ ProgramAssociationTable = {
-    if (sections.isEmpty) left("no sections")
-    else right(ProgramAssociationTable(
+  def fromSections(sections: NonEmptyList[ProgramAssociationSection]): String \/ ProgramAssociationTable = {
+    right(ProgramAssociationTable(
       sections.head.tsid,
       sections.head.extension.version,
       sections.head.extension.current,
       (for {
-        section <- sections
+        section <- sections.list
         pidMapping <- section.pidMappings
       } yield pidMapping).toMap
     ))
@@ -55,8 +53,6 @@ case class ProgramAssociationSection(
 
 object ProgramAssociationSection {
   val TableId = 0
-
-  implicit val iso = Iso.hlist(ProgramAssociationSection.apply _, ProgramAssociationSection.unapply _)
 
   private val dataCodec: Codec[IndexedSeq[(ProgramNumber, Pid)]] = {
     repeated {

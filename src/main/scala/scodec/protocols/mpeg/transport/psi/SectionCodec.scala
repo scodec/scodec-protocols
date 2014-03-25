@@ -35,17 +35,17 @@ object SectionSubCodec {
   }
 }
 
-class SectionCodec[S <: Section] private (cases: Map[Int, SectionCodec.Case[Any, Section]]) extends Codec[S] {
+class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) extends Codec[Section] {
   import SectionCodec._
 
-  def supporting[A <: S](implicit c: SectionSubCodec[A]): SectionCodec[S] =
+  def supporting[A <: Section](implicit c: SectionSubCodec[A]): SectionCodec =
     new SectionCodec(cases + (c.tableId -> Case[Any, Section](
       c.subCodec.asInstanceOf[Codec[Any]],
       (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
       section => c.fromSection(section.asInstanceOf[A])
     )))
 
-  def encode(section: S) = for {
+  def encode(section: Section) = for {
     c <- cases.get(section.tableId) \/> s"unsupported table id ${section.tableId}"
     (privateBits, extension, data) = c.fromSection(section)
     encData <- extension match {
@@ -66,7 +66,7 @@ class SectionCodec[S <: Section] private (cases: Map[Int, SectionCodec.Case[Any,
     section <- DecodingContext(decodeSection(header))
   } yield section).run(bits)
 
-  private def decodeSection(header: SectionHeader)(bits: BitVector): String \/ (BitVector, S) = {
+  private def decodeSection(header: SectionHeader)(bits: BitVector): String \/ (BitVector, Section) = {
     val c = cases.getOrElse(header.tableId, unknownSectionCase(header.tableId).asInstanceOf[Case[Any, Section]])
     val decoded: DecodingContext[(Option[SectionExtension], Any)] =
       if (header.extendedSyntax) {
@@ -82,17 +82,17 @@ class SectionCodec[S <: Section] private (cases: Map[Int, SectionCodec.Case[Any,
       }
 
     decoded.map { case (ext, data) =>
-      c.toSection(header.privateBits, ext, data).asInstanceOf[S]
+      c.toSection(header.privateBits, ext, data)
     }.run(bits)
   }
 }
 
 object SectionCodec {
 
-  def apply[S <: Section]: SectionCodec[S] = new SectionCodec(Map.empty)
+  def empty: SectionCodec = new SectionCodec(Map.empty)
 
-  def supporting[S <: Section : SectionSubCodec]: SectionCodec[S] =
-    apply[S].supporting[S]
+  def supporting[S <: Section : SectionSubCodec]: SectionCodec =
+    empty.supporting[S]
 
   private case class Case[A, B <: Section](
     codec: Codec[A],
