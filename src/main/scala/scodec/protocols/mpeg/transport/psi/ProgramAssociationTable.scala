@@ -19,7 +19,7 @@ case class ProgramAssociationTable(
 
 object ProgramAssociationTable {
 
-  private val MaxProgramsPerSection = 253
+  val MaxProgramsPerSection = 253
 
   def toSections(pat: ProgramAssociationTable): IndexedSeq[ProgramAssociationSection] = {
     val entries = pat.programByPid.toIndexedSeq.sortBy { case (ProgramNumber(n), _) => n }

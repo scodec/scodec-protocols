@@ -15,12 +15,14 @@ case class SectionHeader(
 
 object SectionHeader {
 
+  val BitLength = 32
+
   implicit val iso = Iso.hlist(SectionHeader.apply _, SectionHeader.unapply _)
 
   implicit val codec: Codec[SectionHeader] = {
-    ("table_id"                 | uint16      ) ::
-    ("section_syntax_indicator" | bool        ) ::
-    ("private_bits"             | bits(3)     ) ::
-    ("length"                   | uint(12)    )
+    ("table_id"                 | uint8    ) ::
+    ("section_syntax_indicator" | bool     ) ::
+    ("private_bits"             | bits(3)  ) ::
+    ("length"                   | uint(12) )
   }.as[SectionHeader]
 }

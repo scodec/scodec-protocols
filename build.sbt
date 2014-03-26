@@ -15,12 +15,10 @@ scalacOptions ++= Seq(
   "-feature",
   "-deprecation",
   "-unchecked",
-  "-optimise",
   "-Xcheckinit",
   "-Xlint",
   "-Xverify",
   "-Yclosure-elim",
-  "-Yinline",
   "-Yno-adapted-args",
   "-Ywarn-all")
 
