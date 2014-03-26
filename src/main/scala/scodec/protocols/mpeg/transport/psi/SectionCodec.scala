@@ -12,6 +12,7 @@ import scalaz.stream.{ Process1, Process }
 import scodec.{ Codec, DecodingContext }
 import scodec.bits._
 import scodec.codecs._
+import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
 import shapeless.Iso
 
@@ -93,9 +94,33 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     }.run(bits)
   }
 
-  def depacketize: Process1[Packet, Section] = {
+  /**
+   * Stream transducer that converts packets in to sections.
+   *
+   * The packets may span PID values. De-packetization is performed on each PID and as whole sections are received,
+   * reassembled sections are emitted.
+   *
+   * Errors encountered while depacketizing are emitted.
+   *
+   * Upon noticing a PID discontinuity, an error is emitted and PID decoding state is discarded, resulting in any in-progress
+   * section decoding to be lost for that PID.
+   */
+  def depacketize: Process1[Packet, DepacketizationError \/ Section] = {
 
-    def nextSection(state: Map[Pid, SectionDecodeState], pid: Pid, payloadUnitStart: Option[Int], payload: BitVector): Process1[Packet, Section] = {
+    def validateContinuity(state: Map[Pid, ContinuityCounter]): Process1[Packet, DepacketizationError.Discontinuity \/ Packet] = {
+      Process.await1[Packet] flatMap { packet =>
+        val pid = packet.header.pid
+        val currentContinuityCounter = packet.header.continuityCounter
+        state.get(pid).map { lastContinuityCounter =>
+          if (lastContinuityCounter.next == currentContinuityCounter)
+            Process.halt
+          else
+            Process.emit(left(DepacketizationError.Discontinuity(pid, lastContinuityCounter, currentContinuityCounter)))
+        }.getOrElse(Process.halt) ++ Process.emit(right(packet)) ++ validateContinuity(state + (pid -> currentContinuityCounter))
+      }
+    }
+
+    def nextSection(state: Map[Pid, SectionDecodeState], pid: Pid, payloadUnitStart: Option[Int], payload: BitVector): Process1[DepacketizationError.Discontinuity \/ Packet, DepacketizationError \/ Section] = {
       payloadUnitStart match {
         case None => go(state)
         case Some(start) =>
@@ -105,8 +130,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
           } else {
             Codec[SectionHeader].decode(bits) match {
               case -\/(err) =>
-                // TODO report err
-                go(state - pid)
+                Process.emit(left(DepacketizationError.Decoding(pid, err))) ++ go(state - pid)
               case \/-((bitsPostHeader, header)) =>
                 sectionBody(state, pid, header, bitsPostHeader)
             }
@@ -114,17 +138,16 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
       }
     }
 
-    def sectionBody(state: Map[Pid, SectionDecodeState], pid: Pid, header: SectionHeader, bitsPostHeader: BitVector) : Process1[Packet, Section] = {
+    def sectionBody(state: Map[Pid, SectionDecodeState], pid: Pid, header: SectionHeader, bitsPostHeader: BitVector) : Process1[DepacketizationError.Discontinuity \/ Packet, DepacketizationError \/ Section] = {
       val neededBits = header.length * 8
       if (bitsPostHeader.size < neededBits) {
         go(state + (pid -> AwaitingRest(header, bitsPostHeader)))
       } else {
         decodeSection(header)(bitsPostHeader) match {
           case -\/(err) =>
-            // TODO report err
-            go(state - pid)
+            Process.emit(left(DepacketizationError.Decoding(pid, err))) ++ go(state - pid)
           case \/-((rest, section)) =>
-            Process.emit(section) ++ {
+            Process.emit(right(section)) ++ {
               // Peek at table_id -- if we see 0xff, then there are no further sections in this packet
               if (rest.size >= 8 && rest.take(8) != BitVector.high(8))
                 nextSection(state - pid, pid, Some(0), rest)
@@ -134,22 +157,32 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
       }
     }
 
-    def go(state: Map[Pid, SectionDecodeState]): Process1[Packet, Section] = Process.await1[Packet].flatMap { packet =>
-      packet.payload match {
-        case None => go(state)
-        case Some(payload) =>
-          state.get(packet.header.pid) match {
-            case None => nextSection(state, packet.header.pid, packet.payloadUnitStart, payload)
-            case Some(AwaitingSectionHeader(acc)) =>
-              nextSection(state, packet.header.pid, Some(0), acc ++ payload)
-            case Some(AwaitingRest(header, acc)) =>
-              sectionBody(state, packet.header.pid, header, acc ++ payload)
+    def go(state: Map[Pid, SectionDecodeState]): Process1[DepacketizationError.Discontinuity \/ Packet, DepacketizationError \/ Section] =
+      Process.await1[DepacketizationError.Discontinuity \/ Packet].flatMap {
+        case d @ -\/(discontinuity) =>
+          Process.emit(d) ++ go(state - discontinuity.pid)
+
+        case \/-(packet) =>
+          val pid = packet.header.pid
+          packet.payload match {
+            case None => go(state)
+            case Some(payload) =>
+              state.get(packet.header.pid) match {
+                case None =>
+                  nextSection(state, packet.header.pid, packet.payloadUnitStart, payload)
+                case Some(AwaitingSectionHeader(acc)) =>
+                  nextSection(state, packet.header.pid, Some(0), acc ++ payload)
+                case Some(AwaitingRest(header, acc)) =>
+                  sectionBody(state, packet.header.pid, header, acc ++ payload)
+              }
           }
       }
-    }
 
-    go(Map.empty)
+    validateContinuity(Map.empty) pipe go(Map.empty)
   }
+
+  /** Provides a stream decoder that decodes a bitstream of 188 byte MPEG packets in to a stream of sections. */
+  def packetStreamDecoder: StreamDecoder[DepacketizationError \/ Section] = decodeMany[Packet] pipe depacketize
 }
 
 object SectionCodec {

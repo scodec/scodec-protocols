@@ -18,19 +18,19 @@ case class Packet(
 
 object Packet {
 
-  def packetize(pid: Pid, startingCountinuityCounter: Int, section: BitVector): IndexedSeq[Packet] = {
+  def packetize(pid: Pid, startingCountinuityCounter: ContinuityCounter, section: BitVector): IndexedSeq[Packet] = {
     @annotation.tailrec
-    def go(first: Boolean, cc: Int, remaining: BitVector, acc: IndexedSeq[Packet]): IndexedSeq[Packet] = {
+    def go(first: Boolean, cc: ContinuityCounter, remaining: BitVector, acc: IndexedSeq[Packet]): IndexedSeq[Packet] = {
       if (remaining.isEmpty) acc
       else {
         val (packetData, remData) = remaining.splitAt(8 * (if (first) 183 else 184))
-        go(false, (cc + 1) % 16, remData, acc :+ payload(pid, cc, if (first) Some(0) else None, packetData))
+        go(false, cc.next, remData, acc :+ payload(pid, cc, if (first) Some(0) else None, packetData))
       }
     }
     go(true, startingCountinuityCounter, section, IndexedSeq.empty)
   }
 
-  def payload(pid: Pid, continuityCounter: Int, payloadUnitStart: Option[Int], payload: BitVector): Packet = {
+  def payload(pid: Pid, continuityCounter: ContinuityCounter, payloadUnitStart: Option[Int], payload: BitVector): Packet = {
     val thisPid = pid
     val thisContinuityCounter = continuityCounter
     val thisPayloadUnitStart = payloadUnitStart
