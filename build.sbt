@@ -7,7 +7,7 @@ organization := "org.typelevel"
 
 name := "scodec-protocols"
 
-scalaVersion := "2.10.3"
+scalaVersion := "2.10.4"
 
 crossScalaVersions := Seq(scalaVersion.value)
 
