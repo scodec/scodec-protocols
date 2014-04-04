@@ -3,6 +3,9 @@ package transport
 
 import scala.collection.immutable.IndexedSeq
 
+import scalaz.\/
+import \/.{ left, right }
+import scalaz.stream.{ Process, Process1 }
 import scodec.Codec
 import scodec.bits.BitVector
 import scodec.codecs._
@@ -61,4 +64,20 @@ object Packet {
       ("adaptation_field" | conditional(hdr.payloadUnitStartIndicator, uint8)         ) ::
       ("payload"          | conditional(hdr.payloadIncluded, bits)                    )
     }).as[Packet]
+
+  def validateContinuity: Process1[Packet, DepacketizationError.Discontinuity \/ Packet] = {
+    def go(state: Map[Pid, ContinuityCounter]): Process1[Packet, DepacketizationError.Discontinuity \/ Packet] = {
+      Process.await1[Packet] flatMap { packet =>
+        val pid = packet.header.pid
+        val currentContinuityCounter = packet.header.continuityCounter
+        state.get(pid).map { lastContinuityCounter =>
+          if (lastContinuityCounter.next == currentContinuityCounter)
+            Process.halt
+          else
+            Process.emit(left(DepacketizationError.Discontinuity(pid, lastContinuityCounter, currentContinuityCounter)))
+        }.getOrElse(Process.halt) ++ Process.emit(right(packet)) ++ go(state + (pid -> currentContinuityCounter))
+      }
+    }
+    go(Map.empty)
+  }
 }

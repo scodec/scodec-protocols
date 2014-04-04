@@ -1,6 +1,5 @@
 package scodec.protocols.mpeg
 package transport
-package psi
 
 sealed trait DepacketizationError {
   def pid: Pid

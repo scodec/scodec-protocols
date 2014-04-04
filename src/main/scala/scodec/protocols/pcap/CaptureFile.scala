@@ -1,4 +1,5 @@
-package scodec.protocols.pcap
+package scodec.protocols
+package pcap
 
 import scala.collection.immutable.IndexedSeq
 import scalaz.\/

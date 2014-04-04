@@ -16,35 +16,10 @@ import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
 import shapeless.Iso
 
-trait SectionSubCodec[A] {
-  type Repr
-  def tableId: Int
-  def subCodec: Codec[Repr]
-  def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr): String \/ A
-  def fromSection(section: A): (BitVector, Option[SectionExtension], Repr)
-}
-
-object SectionSubCodec {
-  def psi[A, R: Codec](tableId: Int, toSection: (SectionExtension, R) => A, fromSection: A => (SectionExtension, R)): SectionSubCodec[A] = {
-    val tid = tableId
-    val build = toSection
-    val extract = fromSection
-    new SectionSubCodec[A] {
-      type Repr = R
-      def tableId = tid
-      def subCodec = Codec[Repr]
-      def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
-        extension.map { ext => build(ext, data) } \/> "psi section missing expected section extension"
-      def fromSection(section: A) =
-        extract(section) match { case (ext, data) => (bin"011", Some(ext), data) }
-    }
-  }
-}
-
 class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) extends Codec[Section] {
   import SectionCodec._
 
-  def supporting[A <: Section](implicit c: SectionSubCodec[A]): SectionCodec =
+  def supporting[A <: Section](implicit c: SectionFragmentCodec[A]): SectionCodec =
     new SectionCodec(cases + (c.tableId -> Case[Any, Section](
       c.subCodec.asInstanceOf[Codec[Any]],
       (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
@@ -60,12 +35,14 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
         for {
           encExt <- Codec[SectionExtension].encode(ext)
           encData <- c.codec.encode(data)
-          encCrc <- int32.encode(0) // TODO
-        } yield encExt ++ encData ++ encCrc
+        } yield encExt ++ encData
     }
-    header = SectionHeader(section.tableId, extension.isDefined, privateBits, (encData.size / 8).toInt)
+    includeCrc = extension.isDefined
+    size = (encData.size / 8).toInt + (if (includeCrc) 4 else 0)
+    header = SectionHeader(section.tableId, extension.isDefined, privateBits, size)
     encHeader <- Codec[SectionHeader].encode(header)
-  } yield encHeader ++ encData
+    withoutCrc = encHeader ++ encData
+  } yield if (includeCrc) withoutCrc ++ crc32mpeg(withoutCrc) else withoutCrc
 
   def decode(bits: BitVector) = (for {
     header <- DecodingContext(Codec[SectionHeader].decode)
@@ -94,6 +71,8 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     }.run(bits)
   }
 
+
+
   /**
    * Stream transducer that converts packets in to sections.
    *
@@ -106,19 +85,6 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
    * section decoding to be lost for that PID.
    */
   def depacketize: Process1[Packet, DepacketizationError \/ Section] = {
-
-    def validateContinuity(state: Map[Pid, ContinuityCounter]): Process1[Packet, DepacketizationError.Discontinuity \/ Packet] = {
-      Process.await1[Packet] flatMap { packet =>
-        val pid = packet.header.pid
-        val currentContinuityCounter = packet.header.continuityCounter
-        state.get(pid).map { lastContinuityCounter =>
-          if (lastContinuityCounter.next == currentContinuityCounter)
-            Process.halt
-          else
-            Process.emit(left(DepacketizationError.Discontinuity(pid, lastContinuityCounter, currentContinuityCounter)))
-        }.getOrElse(Process.halt) ++ Process.emit(right(packet)) ++ validateContinuity(state + (pid -> currentContinuityCounter))
-      }
-    }
 
     def nextSection(state: Map[Pid, SectionDecodeState], pid: Pid, payloadUnitStart: Option[Int], payload: BitVector): Process1[DepacketizationError.Discontinuity \/ Packet, DepacketizationError \/ Section] = {
       payloadUnitStart match {
@@ -178,7 +144,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
           }
       }
 
-    validateContinuity(Map.empty) pipe go(Map.empty)
+    Packet.validateContinuity pipe go(Map.empty)
   }
 
   /** Provides a stream decoder that decodes a bitstream of 188 byte MPEG packets in to a stream of sections. */
@@ -189,7 +155,7 @@ object SectionCodec {
 
   def empty: SectionCodec = new SectionCodec(Map.empty)
 
-  def supporting[S <: Section : SectionSubCodec]: SectionCodec =
+  def supporting[S <: Section : SectionFragmentCodec]: SectionCodec =
     empty.supporting[S]
 
   private case class Case[A, B <: Section](

@@ -54,7 +54,9 @@ case class ProgramAssociationSection(
 object ProgramAssociationSection {
   val TableId = 0
 
-  private val dataCodec: Codec[IndexedSeq[(ProgramNumber, Pid)]] = {
+  private type Fragment = IndexedSeq[(ProgramNumber, Pid)]
+
+  private val fragmentCodec: Codec[Fragment] = {
     repeated {
       ("program_number" | Codec[ProgramNumber]) ~
       (reserved(3) ~>
@@ -62,10 +64,10 @@ object ProgramAssociationSection {
     }
   }
 
-  implicit val sectionSubCodec: SectionSubCodec[ProgramAssociationSection] =
-    SectionSubCodec.psi[ProgramAssociationSection, IndexedSeq[(ProgramNumber, Pid)]](
+  implicit val sectionFragmentCodec: SectionFragmentCodec[ProgramAssociationSection] =
+    SectionFragmentCodec.psi[ProgramAssociationSection, IndexedSeq[(ProgramNumber, Pid)]](
       TableId,
       (ext, mappings) => ProgramAssociationSection(ext, mappings),
       pat => (pat.extension, pat.pidMappings)
-    )(dataCodec)
+    )(fragmentCodec)
 }
