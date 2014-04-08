@@ -49,6 +49,7 @@ resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repos
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
+  "org.typelevel" %% "scodec-bits" % "1.0.1-SNAPSHOT" force(),
   "org.typelevel" %% "scodec-stream" % "1.0.0-SNAPSHOT",
   "org.scalatest" %% "scalatest" % "2.1.2" % "test",
   "org.scalacheck" %% "scalacheck" % "1.11.3" % "test"

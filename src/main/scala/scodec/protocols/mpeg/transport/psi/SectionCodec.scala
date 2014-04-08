@@ -14,8 +14,6 @@ import scodec.bits._
 import scodec.codecs._
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
-import shapeless.Iso
-
 class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) extends Codec[Section] {
   import SectionCodec._
 

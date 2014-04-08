@@ -17,10 +17,10 @@ case class RecordHeader(
 
 object RecordHeader {
 
+  implicit val iso = Iso.hlist(RecordHeader.apply _, RecordHeader.unapply _)
+
   private val oneSecondInMicros = 1.second.toMicros.toDouble
   private def timestamp(seconds: Long, micros: Long): Double = seconds + (micros / oneSecondInMicros)
-
-  implicit val iso = Iso.hlist(RecordHeader.apply _, RecordHeader.unapply _)
 
   implicit def codec(implicit ordering: ByteOrdering): Codec[RecordHeader] = "record-header" | {
     ("ts_sec"   | guint32 ) ::
