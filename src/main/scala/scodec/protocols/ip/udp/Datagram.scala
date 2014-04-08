@@ -23,7 +23,7 @@ object Datagram {
 
     new Codec[Datagram] {
       def encode(dg: Datagram) = for {
-        encHeader <- headerCodec.encode(dg.sourcePort :: dg.destinationPort :: (8 + (dg.data.size / 8).toInt) :: 0 :: HNil)
+        encHeader <- headerCodec.encode(dg.sourcePort :: dg.destinationPort :: (8 + dg.data.bytes.size) :: 0 :: HNil)
         chksum = checksum(encHeader ++ dg.data)
       } yield encHeader.dropRight(16) ++ chksum ++ dg.data
 
