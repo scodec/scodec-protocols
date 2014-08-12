@@ -1,7 +1,7 @@
 package scodec.protocols
 
 import scalaz.{ Lens, LensFamily }
-import scalaz.stream.{ Process, process1 }
+import scalaz.stream.{ Process, Process1, process1 }
 import Process._
 
 /** Integrates lenses and processes. */
@@ -32,10 +32,10 @@ object LensCombinators {
   def lensf[A1, A2, B1, B2](l: LensFamily[A1, A2, B1, B2])(p: Process1[B1, B2]): Process1[A1, A2] = {
     def go(last: Option[A1], cur: Process1[B1, B2]): Process1[A1, A2] = cur match {
       case h@Halt(_) => h
-      case Emit(h, t) =>
+      case Emit(h) =>
         last match {
-          case Some(a) => Emit(h map { b => l.set(a, b) }, go(last, t))
-          case None => go(last, t)
+          case Some(a) => Process.emitAll(h map { b => l.set(a, b) })
+          case None => Process.halt
         }
       case _ =>
         await1[A1].flatMap { a => go(Some(a), process1.feed1(l.get(a))(cur)) }

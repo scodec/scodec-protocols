@@ -47,7 +47,6 @@ case class StreamType(value: Int)
 case class ProgramMapRecord(pid: Pid, descriptors: BitVector)
 object ProgramMapRecord {
   //def apply(pid: Pid) = new ProgramMapRecord(pid, BitVector.empty)
-  implicit val iso = Iso.hlist(ProgramMapRecord.apply _, ProgramMapRecord.unapply _)
 }
 
 case class ProgramMapSection(

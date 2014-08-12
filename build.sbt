@@ -19,8 +19,7 @@ scalacOptions ++= Seq(
   "-Xlint",
   "-Xverify",
   "-Yclosure-elim",
-  "-Yno-adapted-args",
-  "-Ywarn-all")
+  "-Yno-adapted-args")
 
 scalacOptions in (Compile, doc) ++= {
   val tagOrBranch = if (version.value endsWith "SNAPSHOT") "master" else ("v" + version.value)
@@ -49,9 +48,8 @@ resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repos
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "scodec-bits" % "1.0.1-SNAPSHOT" force(),
-  "org.typelevel" %% "scodec-stream" % "1.0.0-SNAPSHOT",
-  "org.scalatest" %% "scalatest" % "2.1.2" % "test",
+  "org.typelevel" %% "scodec-stream" % "0.1.0-SNAPSHOT",
+  "org.scalatest" %% "scalatest" % "2.1.3" % "test",
   "org.scalacheck" %% "scalacheck" % "1.11.3" % "test"
 )
 

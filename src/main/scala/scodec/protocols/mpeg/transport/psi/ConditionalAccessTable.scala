@@ -62,7 +62,6 @@ case class ConditionalAccessDescriptor(systemId: Int, pid: Pid, privateData: Bit
 
 object ConditionalAccessDescriptor {
   val Tag = 9
-  implicit val iso = Iso.hlist(ConditionalAccessDescriptor.apply _, ConditionalAccessDescriptor.unapply _)
 
   implicit val codec: Codec[ConditionalAccessDescriptor] = {
     constant(Tag) ~>

@@ -4,7 +4,6 @@ package pcap
 import scalaz.syntax.std.boolean._
 import scodec.Codec
 import scodec.codecs._
-import shapeless.Iso
 
 /**
  * Header of an ethernet frame as captured in a pcap file.
@@ -19,8 +18,6 @@ case class EthernetFrameHeader(
 }
 
 object EthernetFrameHeader {
-  implicit val iso = Iso.hlist(EthernetFrameHeader.apply _, EthernetFrameHeader.unapply _)
-
   implicit val codec: Codec[EthernetFrameHeader] = {
     val macAddress = Codec[MacAddress]
     ("destination" | macAddress) ::

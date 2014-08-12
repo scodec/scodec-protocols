@@ -9,15 +9,12 @@ import scodec.{ Codec, Decoder }
 import scodec.bits.BitVector
 import scodec.codecs._
 import scodec.stream._
-import shapeless.Iso
 
 case class CaptureFile(
   header: GlobalHeader,
   records: IndexedSeq[Record])
 
 object CaptureFile {
-  implicit val iso = Iso.hlist(CaptureFile.apply _, CaptureFile.unapply _)
-
   implicit val codec: Codec[CaptureFile] = "capture-file" | {
     Codec[GlobalHeader] >>:~ { hdr =>
       repeated(Record.codec(hdr.ordering)).hlist

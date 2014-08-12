@@ -4,7 +4,6 @@ package transport
 import scalaz.std.AllInstances._
 import scodec.Codec
 import scodec.codecs._
-import shapeless.Iso
 
 case class TransportStreamHeader(
   transportErrorIndicator: Boolean,
@@ -20,8 +19,6 @@ case class TransportStreamHeader(
 }
 
 object TransportStreamHeader {
-  implicit def iso = Iso.hlist(TransportStreamHeader.apply _, TransportStreamHeader.unapply _)
-
   implicit val codec: Codec[TransportStreamHeader] = "transport_stream_header" | fixedSizeBytes(4,
     ("syncByte"                  | constant(0x47)          ) :~>:
     ("transportErrorIndicator"   | bool                    ) ::

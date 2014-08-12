@@ -6,7 +6,6 @@ import scalaz.std.AllInstances._
 import scodec.Codec
 import scodec.bits.BitVector
 import scodec.codecs._
-import shapeless.Iso
 
 trait Section {
   def tableId: Int
@@ -25,8 +24,6 @@ case class SectionExtension(
 )
 
 object SectionExtension {
-  implicit val iso = Iso.hlist(SectionExtension.apply _, SectionExtension.unapply _)
-
   implicit val codec: Codec[SectionExtension] = {
     ("table_id_extension"     | uint16) ::
     reserved(2) :~>:

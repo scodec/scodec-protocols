@@ -4,7 +4,6 @@ import scala.concurrent.duration._
 import scodec.bits.ByteOrdering
 import scodec.Codec
 import scodec.codecs._
-import shapeless.Iso
 
 case class RecordHeader(
   timestampSeconds: Long,
@@ -16,8 +15,6 @@ case class RecordHeader(
 }
 
 object RecordHeader {
-
-  implicit val iso = Iso.hlist(RecordHeader.apply _, RecordHeader.unapply _)
 
   private val oneSecondInMicros = 1.second.toMicros.toDouble
   private def timestamp(seconds: Long, micros: Long): Double = seconds + (micros / oneSecondInMicros)

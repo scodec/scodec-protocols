@@ -4,7 +4,6 @@ package transport
 import scodec.Codec
 import scodec.bits.BitVector
 import scodec.codecs._
-import shapeless.Iso
 
 /**
  * Partial modelling of the adaptation field.
@@ -19,8 +18,6 @@ case class AdaptationField(
 )
 
 object AdaptationField {
-  implicit def iso = Iso.hlist(AdaptationField.apply _, AdaptationField.unapply _)
-
   private val transportPrivateData: Codec[BitVector] =
     variableSizeBits(uint8, bits)
 

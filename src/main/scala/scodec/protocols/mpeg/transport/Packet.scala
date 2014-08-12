@@ -9,7 +9,6 @@ import scalaz.stream.{ Process, Process1 }
 import scodec.Codec
 import scodec.bits.BitVector
 import scodec.codecs._
-import shapeless.Iso
 
 /** Transport stream packet. */
 case class Packet(
@@ -54,8 +53,6 @@ object Packet {
       payloadUnitStart = thisPayloadUnitStart,
       payload = Some(thisPayload))
   }
-
-  implicit def iso = Iso.hlist(Packet.apply _, Packet.unapply _)
 
   implicit def codec(implicit adaptationField: Codec[AdaptationField]): Codec[Packet] =
     "packet" | fixedSizeBytes(188,

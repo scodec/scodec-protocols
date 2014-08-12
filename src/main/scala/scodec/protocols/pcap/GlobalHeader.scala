@@ -4,7 +4,6 @@ import scalaz.\/.{ left, right }
 import scodec.bits.{ BitVector, ByteOrdering }
 import scodec.Codec
 import scodec.codecs._
-import shapeless.Iso
 
 case class GlobalHeader(
   ordering: ByteOrdering,
@@ -16,8 +15,6 @@ case class GlobalHeader(
   network: LinkType)
 
 object GlobalHeader {
-  implicit val iso = Iso.hlist(GlobalHeader.apply _, GlobalHeader.unapply _)
-
   private val MagicNumber = 0xa1b2c3d4L
   private val MagicNumberRev = 0xd4c3b2a1L
 

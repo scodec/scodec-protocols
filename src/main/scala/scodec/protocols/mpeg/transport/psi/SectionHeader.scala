@@ -5,7 +5,6 @@ package psi
 import scodec.Codec
 import scodec.bits.BitVector
 import scodec.codecs._
-import shapeless.Iso
 
 case class SectionHeader(
   tableId: Int,
@@ -16,8 +15,6 @@ case class SectionHeader(
 object SectionHeader {
 
   val BitLength = 32
-
-  implicit val iso = Iso.hlist(SectionHeader.apply _, SectionHeader.unapply _)
 
   implicit val codec: Codec[SectionHeader] = {
     ("table_id"                 | uint8    ) ::
