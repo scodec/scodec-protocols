@@ -6,17 +6,21 @@ Provides models of common binary protocols using the [scodec library](https://gi
 Getting Binaries
 ----------------
 
-This library works with Scala 2.10.*.
+This library works with Scala 2.10 and 2.11.
 
 ScalaDoc for the latest version is available here: http://scodec.github.io/scodec-protocols/latest/api.
 
 ### Releases
 
-There are no stable releases yet.
+#### Version 0.1.0
+
+ - Preview release - no source or binary compatibility guarantees.
+ - Compatible with Scalaz 7.1.*, Shapeless 2.0.0, and Scalaz-stream 0.5a.
+
 
 For SBT users:
 
-    libraryDependencies += "org.typelevel" %% "scodec-protocols" % "1.0.0-SNAPSHOT"
+    libraryDependencies += "org.typelevel" %% "scodec-protocols" % "0.1.0"
 
 
 For Maven users:
@@ -24,11 +28,10 @@ For Maven users:
     <dependencies>
       <dependency>
         <groupId>org.typelevel</groupId>
-        <artifactId>scodec-protocols_2.10</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <artifactId>scodec-protocols_2.11</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
       </dependency>
     </dependencies>
-
 
 ### Snapshots
 
@@ -38,7 +41,7 @@ For SBT users:
 
     resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
 
-    libraryDependencies += "org.typelevel" %% "scodec-protocols" % "1.0.0-SNAPSHOT"
+    libraryDependencies += "org.typelevel" %% "scodec-protocols" % "0.2.0-SNAPSHOT"
 
 
 For Maven users:
@@ -54,8 +57,8 @@ For Maven users:
     <dependencies>
       <dependency>
         <groupId>org.typelevel</groupId>
-        <artifactId>scodec-protocols_2.10</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <artifactId>scodec-protocols_2.11</artifactId>
+        <version>0.2.0-SNAPSHOT</version>
       </dependency>
     </dependencies>
 
