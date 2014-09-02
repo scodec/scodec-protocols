@@ -9,7 +9,7 @@ name := "scodec-protocols"
 
 scalaVersion := "2.10.4"
 
-crossScalaVersions := Seq(scalaVersion.value)
+crossScalaVersions := Seq("2.10.4", "2.11.0")
 
 scalacOptions ++= Seq(
   "-feature",
@@ -48,7 +48,7 @@ resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repos
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "scodec-stream" % "0.1.0-SNAPSHOT",
+  "org.typelevel" %% "scodec-stream" % "0.1.0",
   "org.scalatest" %% "scalatest" % "2.1.3" % "test",
   "org.scalacheck" %% "scalacheck" % "1.11.3" % "test"
 )
