@@ -55,7 +55,7 @@ libraryDependencies ++= Seq(
 
 osgiSettings
 
-OsgiKeys.exportPackage := Seq("!scodec.bits,!scodec.codecs,scodec.codecs.*;version=${Bundle-Version}")
+OsgiKeys.exportPackage := Seq("!scodec.bits,!scodec.codecs,scodec.protocols.*;version=${Bundle-Version}")
 
 OsgiKeys.importPackage := Seq(
   """scodec.*;version="$<range;[==,=+);$<@>>"""",
