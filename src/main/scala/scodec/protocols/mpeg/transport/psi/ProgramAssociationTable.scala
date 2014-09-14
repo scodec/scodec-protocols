@@ -2,7 +2,6 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scala.collection.immutable.IndexedSeq
 import scalaz.{ \/, NonEmptyList }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
@@ -21,9 +20,9 @@ object ProgramAssociationTable {
 
   val MaxProgramsPerSection = 253
 
-  def toSections(pat: ProgramAssociationTable): IndexedSeq[ProgramAssociationSection] = {
-    val entries = pat.programByPid.toIndexedSeq.sortBy { case (ProgramNumber(n), _) => n }
-    val groupedEntries = entries.grouped(MaxProgramsPerSection).toIndexedSeq
+  def toSections(pat: ProgramAssociationTable): Vector[ProgramAssociationSection] = {
+    val entries = pat.programByPid.toVector.sortBy { case (ProgramNumber(n), _) => n }
+    val groupedEntries = entries.grouped(MaxProgramsPerSection).toVector
     groupedEntries.zipWithIndex.map { case (es, idx) =>
       ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, idx, groupedEntries.size), es)
     }
@@ -45,7 +44,7 @@ object ProgramAssociationTable {
 
 case class ProgramAssociationSection(
   extension: SectionExtension,
-  pidMappings: IndexedSeq[(ProgramNumber, Pid)]
+  pidMappings: Vector[(ProgramNumber, Pid)]
 ) extends ExtendedSection {
   def tableId = ProgramAssociationSection.TableId
   def tsid: TransportStreamId = TransportStreamId(extension.tableIdExtension)
@@ -54,10 +53,10 @@ case class ProgramAssociationSection(
 object ProgramAssociationSection {
   val TableId = 0
 
-  private type Fragment = IndexedSeq[(ProgramNumber, Pid)]
+  private type Fragment = Vector[(ProgramNumber, Pid)]
 
   private val fragmentCodec: Codec[Fragment] = {
-    repeated {
+    vector {
       ("program_number" | Codec[ProgramNumber]) ~
       (reserved(3) ~>
       ("pid" | Codec[Pid]))
@@ -65,7 +64,7 @@ object ProgramAssociationSection {
   }
 
   implicit val sectionFragmentCodec: SectionFragmentCodec[ProgramAssociationSection] =
-    SectionFragmentCodec.psi[ProgramAssociationSection, IndexedSeq[(ProgramNumber, Pid)]](
+    SectionFragmentCodec.psi[ProgramAssociationSection, Vector[(ProgramNumber, Pid)]](
       TableId,
       (ext, mappings) => ProgramAssociationSection(ext, mappings),
       pat => (pat.extension, pat.pidMappings)

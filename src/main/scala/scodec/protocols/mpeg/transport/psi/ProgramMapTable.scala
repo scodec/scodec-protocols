@@ -2,7 +2,6 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scala.collection.immutable.IndexedSeq
 import scalaz.{ \/, NonEmptyList }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
@@ -27,7 +26,7 @@ object ProgramMapTable {
       SectionExtension(pmt.programNumber.value, pmt.version, pmt.current, 0, 0),
       pmt.pcrPid,
       pmt.programInfoDescriptors,
-      pmt.componentStreamMapping.toIndexedSeq.sortBy { case (k, v) => k.value }
+      pmt.componentStreamMapping.toVector.sortBy { case (k, v) => k.value }
     )
   }
 
@@ -53,7 +52,7 @@ case class ProgramMapSection(
   extension: SectionExtension,
   pcrPid: Pid,
   programInfoDescriptors: BitVector,
-  componentStreamMapping: IndexedSeq[(StreamType, ProgramMapRecord)]
+  componentStreamMapping: Vector[(StreamType, ProgramMapRecord)]
 ) extends ExtendedSection {
   def tableId = ProgramMapSection.TableId
   def programNumber: ProgramNumber = ProgramNumber(extension.tableIdExtension)
@@ -62,7 +61,7 @@ case class ProgramMapSection(
 object ProgramMapSection {
   val TableId = 2
 
-  private type Fragment = Pid :: BitVector :: IndexedSeq[(StreamType, ProgramMapRecord)] :: HNil
+  private type Fragment = Pid :: BitVector :: Vector[(StreamType, ProgramMapRecord)] :: HNil
   private val fragmentCodec: Codec[Fragment] = {
     def pid: Codec[Pid] = reserved(3) ~> Codec[Pid]
     def descriptor: Codec[BitVector] =
@@ -72,8 +71,8 @@ object ProgramMapSection {
 
     ("pcr_pid" | pid) ::
     ("program_info_descriptors" | descriptor) ::
-    repeated {
-      ("stream_type" | uint8.xmap[StreamType](StreamType(_), _.value)) ~ programMapRecord
+    vector {
+      ("stream_type" | uint8.as[StreamType]) ~ programMapRecord
     }
   }
 

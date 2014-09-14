@@ -2,7 +2,6 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scala.collection.immutable.IndexedSeq
 import scalaz.{ \/, NonEmptyList }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
@@ -14,16 +13,16 @@ import shapeless._
 case class ConditionalAccessTable(
   version: Int,
   current: Boolean,
-  descriptors: IndexedSeq[ConditionalAccessDescriptor]
+  descriptors: Vector[ConditionalAccessDescriptor]
 )
 
 object ConditionalAccessTable {
 
-  def toSections(pat: ConditionalAccessTable): IndexedSeq[ConditionalAccessSection] = {
+  def toSections(pat: ConditionalAccessTable): Vector[ConditionalAccessSection] = {
     ???
     /*
-    val entries = pat.programByPid.toIndexedSeq.sortBy { case (ProgramNumber(n), _) => n }
-    val groupedEntries = entries.grouped(MaxProgramsPerSection).toIndexedSeq
+    val entries = pat.programByPid.toVector.sortBy { case (ProgramNumber(n), _) => n }
+    val groupedEntries = entries.grouped(MaxProgramsPerSection).toVector
     groupedEntries.zipWithIndex.map { case (es, idx) =>
       ConditionalAccessSection(SectionExtension(pat.tsid.value, pat.version, pat.current, idx, groupedEntries.size), es)
     }
@@ -37,7 +36,7 @@ object ConditionalAccessTable {
 
 case class ConditionalAccessSection(
   extension: SectionExtension,
-  descriptors: IndexedSeq[ConditionalAccessDescriptor]
+  descriptors: Vector[ConditionalAccessDescriptor]
 ) extends ExtendedSection {
   def tableId = ConditionalAccessSection.TableId
 }
@@ -45,10 +44,10 @@ case class ConditionalAccessSection(
 object ConditionalAccessSection {
   val TableId = 1
 
-  type Fragment = IndexedSeq[ConditionalAccessDescriptor]
+  type Fragment = Vector[ConditionalAccessDescriptor]
 
   private val fragmentCodec: Codec[Fragment] =
-    repeated(Codec[ConditionalAccessDescriptor])
+    vector(Codec[ConditionalAccessDescriptor])
 
   implicit val sectionFragmentCodec: SectionFragmentCodec[ConditionalAccessSection] =
     SectionFragmentCodec.psi[ConditionalAccessSection, Fragment](

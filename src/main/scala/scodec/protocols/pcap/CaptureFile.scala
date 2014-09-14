@@ -1,7 +1,6 @@
 package scodec.protocols
 package pcap
 
-import scala.collection.immutable.IndexedSeq
 import scalaz.\/
 import scalaz.\/.{ left, right }
 import scalaz.syntax.std.option._
@@ -12,12 +11,12 @@ import scodec.stream._
 
 case class CaptureFile(
   header: GlobalHeader,
-  records: IndexedSeq[Record])
+  records: Vector[Record])
 
 object CaptureFile {
   implicit val codec: Codec[CaptureFile] = "capture-file" | {
     Codec[GlobalHeader] >>:~ { hdr =>
-      repeated(Record.codec(hdr.ordering)).hlist
+      vector(Record.codec(hdr.ordering)).hlist
   }}.as[CaptureFile]
 
   def payloadStreamDecoderPF[A](linkDecoders: PartialFunction[LinkType, StreamDecoder[A]]): StreamDecoder[Timestamped[A]] =
