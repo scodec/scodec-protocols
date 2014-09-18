@@ -2,9 +2,13 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.{ \/, NonEmptyList }
+import scalaz.{ \/, NonEmptyList, Tag, Tags }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
+import scalaz.syntax.all._
+
+import scalaz.stream.{ Process, Process1 }
+
 import scodec.Codec
 import scodec.bits._
 import scodec.codecs._
@@ -14,7 +18,9 @@ case class ProgramAssociationTable(
   version: Int,
   current: Boolean,
   programByPid: Map[ProgramNumber, Pid]
-)
+) {
+  def toSections: Vector[ProgramAssociationSection] = ProgramAssociationTable.toSections(this)
+}
 
 object ProgramAssociationTable {
 
@@ -23,23 +29,36 @@ object ProgramAssociationTable {
   def toSections(pat: ProgramAssociationTable): Vector[ProgramAssociationSection] = {
     val entries = pat.programByPid.toVector.sortBy { case (ProgramNumber(n), _) => n }
     val groupedEntries = entries.grouped(MaxProgramsPerSection).toVector
+    val lastSection = groupedEntries.size - 1
     groupedEntries.zipWithIndex.map { case (es, idx) =>
-      ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, idx, groupedEntries.size), es)
+      ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, idx, lastSection), es)
     }
   }
 
-  // TODO validate section data
   def fromSections(sections: NonEmptyList[ProgramAssociationSection]): String \/ ProgramAssociationTable = {
-    right(ProgramAssociationTable(
-      sections.head.tsid,
-      sections.head.extension.version,
-      sections.head.extension.current,
+    def extract[A](name: String, f: ProgramAssociationSection => A): String \/ A = {
+      val extracted = sections.map(f).list.distinct
+      if (extracted.size == 1) right(extracted.head)
+      else left(s"sections have diferring $name: " + extracted.mkString(", "))
+    }
+    for {
+      tsid <- extract("TSIDs", _.tsid)
+      version <- extract("versions", _.extension.version)
+      current = Tag.unwrap(sections.foldMap { p => Tags.Disjunction(p.extension.current) })
+    } yield ProgramAssociationTable(
+      tsid,
+      version,
+      current,
       (for {
         section <- sections.list
         pidMapping <- section.pidMappings
       } yield pidMapping).toMap
-    ))
+    )
   }
+
+
+
+
 }
 
 case class ProgramAssociationSection(

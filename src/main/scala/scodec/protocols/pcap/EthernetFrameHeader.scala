@@ -4,6 +4,7 @@ package pcap
 import scalaz.syntax.std.boolean._
 import scodec.Codec
 import scodec.codecs._
+import scodec.stream._
 
 /**
  * Header of an ethernet frame as captured in a pcap file.
@@ -24,4 +25,6 @@ object EthernetFrameHeader {
     ("source"      | macAddress) ::
     ("ethertype"   | uint16)
   }.as[EthernetFrameHeader]
+
+  val sdecoder: StreamDecoder[EthernetFrameHeader] = decode.once[pcap.EthernetFrameHeader]
 }

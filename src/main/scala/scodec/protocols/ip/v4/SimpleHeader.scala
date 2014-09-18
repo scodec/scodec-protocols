@@ -6,6 +6,7 @@ import scalaz.std.anyVal.unitInstance
 import scodec.bits.BitVector
 import scodec.Codec
 import scodec.codecs._
+import scodec.stream._
 import shapeless._
 
 /** Simplified version of the IPv4 header format. */
@@ -51,4 +52,8 @@ object SimpleHeader {
     }
   }
 
+
+  def sdecoder(ethernetHeader: pcap.EthernetFrameHeader): StreamDecoder[SimpleHeader] =
+    if (ethernetHeader.ethertype == Some(0x0800)) decode.once[SimpleHeader]
+    else decode.halt
 }

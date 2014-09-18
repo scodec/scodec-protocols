@@ -1,8 +1,6 @@
 package scodec.protocols.mpeg
 package transport
 
-import scala.collection.immutable.IndexedSeq
-
 import scalaz.\/
 import \/.{ left, right }
 import scalaz.stream.{ Process, Process1 }
@@ -20,16 +18,16 @@ case class Packet(
 
 object Packet {
 
-  def packetize(pid: Pid, startingCountinuityCounter: ContinuityCounter, section: BitVector): IndexedSeq[Packet] = {
+  def packetize(pid: Pid, startingCountinuityCounter: ContinuityCounter, section: BitVector): Vector[Packet] = {
     @annotation.tailrec
-    def go(first: Boolean, cc: ContinuityCounter, remaining: BitVector, acc: IndexedSeq[Packet]): IndexedSeq[Packet] = {
+    def go(first: Boolean, cc: ContinuityCounter, remaining: BitVector, acc: Vector[Packet]): Vector[Packet] = {
       if (remaining.isEmpty) acc
       else {
         val (packetData, remData) = remaining.splitAt(8 * (if (first) 183 else 184))
         go(false, cc.next, remData, acc :+ payload(pid, cc, if (first) Some(0) else None, packetData))
       }
     }
-    go(true, startingCountinuityCounter, section, IndexedSeq.empty)
+    go(true, startingCountinuityCounter, section, Vector.empty)
   }
 
   def payload(pid: Pid, continuityCounter: ContinuityCounter, payloadUnitStart: Option[Int], payload: BitVector): Packet = {

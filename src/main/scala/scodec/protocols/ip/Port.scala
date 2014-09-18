@@ -6,6 +6,7 @@ import scodec.codecs._
 
 case class Port(value: Int) {
   require(value >= Port.MinValue && value <= Port.MaxValue)
+  override def toString = value.toString
 }
 
 object Port {

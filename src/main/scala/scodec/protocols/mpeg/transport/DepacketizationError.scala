@@ -1,7 +1,7 @@
 package scodec.protocols.mpeg
 package transport
 
-sealed trait DepacketizationError {
+sealed abstract class DepacketizationError {
   def pid: Pid
   def message: String
 }

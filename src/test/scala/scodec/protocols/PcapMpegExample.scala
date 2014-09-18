@@ -1,7 +1,7 @@
 package scodec.protocols
 
 import scodec.stream.StreamDecoder
-import scodec.stream.decode._
+import scodec.stream.decode
 import pcap.{ CaptureFile, LinkType }
 
 /**
@@ -19,18 +19,10 @@ object PcapMpegExample extends App {
   val decoder: StreamDecoder[Timestamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF {
     case LinkType.Ethernet =>
       for {
-        // Decode an ethernet frame header
-        ethernetHeader <- once[pcap.EthernetFrameHeader]
-        // Skip this record if the ethertype is not IPv4
-        if ethernetHeader.ethertype == Some(0x0800)
-        // Decode the IPv4 packet header
-        ipHeader <- once[ip.v4.SimpleHeader]
-        // Skip this record if the protocol is not UDP
-        if ipHeader.protocol == 17
-        // Decode the UDP datagram header
-        udpDatagram <- once[ip.udp.DatagramHeader]
-        // Decode the rest of the data as MPEG transport stream packets
-        packets <- tryMany[mpeg.transport.Packet] map { p =>
+        ethernetHeader <- pcap.EthernetFrameHeader.sdecoder
+        ipHeader <- ip.v4.SimpleHeader.sdecoder(ethernetHeader)
+        udpDatagram <- ip.udp.DatagramHeader.sdecoder(ipHeader)
+        packets <- decode.tryMany[mpeg.transport.Packet] map { p =>
           CapturedPacket(
             IpAndPort(ipHeader.sourceIp, udpDatagram.sourcePort),
             IpAndPort(ipHeader.destinationIp, udpDatagram.destinationPort),
