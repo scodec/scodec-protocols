@@ -13,14 +13,20 @@ class TimestampedTest extends ProtocolsSpec {
     "support calculation of rates" which {
 
       "emits accumulated feature values for each specified time period and emits a final value" in {
-        val data = Process.emitAll(Seq(Timestamped(0, 1), Timestamped(0.5, 2), Timestamped(1, 1), Timestamped(2.3, 2))).toSource
-        data.pipe(Timestamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(Timestamped(0, 3), Timestamped(1, 1), Timestamped(2, 2))
+        val data = Process.emitAll(Seq(
+          Timestamped(0, 1),
+          Timestamped(0.5, 2),
+          Timestamped(1, 1),
+          Timestamped(2.3, 2))).toSource
+        data.pipe(Timestamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
+          Timestamped(0, 3), Timestamped(1, 1), Timestamped(2, 2))
         data.pipe(Timestamped.rate(2.0)(x => x)).runLog.run shouldBe Vector(Timestamped(0, 4), Timestamped(2, 2))
       }
 
       "emits 0s when values are skipped over" in {
         val data = Process.emitAll(Seq(Timestamped(0, 1), Timestamped(3.3, 2))).toSource
-        data.pipe(Timestamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(Timestamped(0, 1), Timestamped(1, 0), Timestamped(2, 0), Timestamped(3, 2))
+        data.pipe(Timestamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
+          Timestamped(0, 1), Timestamped(1, 0), Timestamped(2, 0), Timestamped(3, 2))
       }
 
       "supports calculation of an average bitrate" in {
