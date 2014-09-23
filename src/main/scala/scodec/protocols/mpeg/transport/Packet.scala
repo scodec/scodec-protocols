@@ -60,16 +60,18 @@ object Packet {
       ("payload"          | conditional(hdr.payloadIncluded, bits)                    )
     }).as[Packet]
 
-  def validateContinuity: Process1[Packet, DepacketizationError.Discontinuity \/ Packet] = {
-    def go(state: Map[Pid, ContinuityCounter]): Process1[Packet, DepacketizationError.Discontinuity \/ Packet] = {
+  def validateContinuity: Process1[Packet, PidStamped[DepacketizationError.Discontinuity] \/ Packet] = {
+    def go(state: Map[Pid, ContinuityCounter]): Process1[Packet, PidStamped[DepacketizationError.Discontinuity] \/ Packet] = {
       Process.await1[Packet] flatMap { packet =>
         val pid = packet.header.pid
         val currentContinuityCounter = packet.header.continuityCounter
         state.get(pid).map { lastContinuityCounter =>
-          if (lastContinuityCounter.next == currentContinuityCounter)
+          if (lastContinuityCounter.next == currentContinuityCounter) {
             Process.halt
-          else
-            Process.emit(left(DepacketizationError.Discontinuity(pid, lastContinuityCounter, currentContinuityCounter)))
+          } else {
+            val err: PidStamped[DepacketizationError.Discontinuity] \/ Packet = left(PidStamped(pid, DepacketizationError.Discontinuity(lastContinuityCounter, currentContinuityCounter)))
+            Process.emit(err)
+          }
         }.getOrElse(Process.halt) ++ Process.emit(right(packet)) ++ go(state + (pid -> currentContinuityCounter))
       }
     }

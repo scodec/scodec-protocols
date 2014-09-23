@@ -14,3 +14,5 @@ object Pid {
 
   implicit val codec: Codec[Pid] = uint(13).xmap(Pid.apply, _.value)
 }
+
+case class PidStamped[A](pid: Pid, value: A)

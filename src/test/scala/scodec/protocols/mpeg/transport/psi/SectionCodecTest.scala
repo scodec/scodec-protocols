@@ -20,7 +20,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), pasEnc)
 
         val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
-        p.runLog.run shouldBe IndexedSeq(pas).map(right)
+        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
       }
 
       "handles case where section starts at beginning of packet and spans multiple packets" in {
@@ -32,7 +32,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val packets = Packet.packetize(Pid(0), ContinuityCounter(0), pasEnc)
 
         val p = Process.emitAll(packets).toSource pipe sectionCodec.depacketize
-        p.runLog.run shouldBe IndexedSeq(pas).map(right)
+        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
       }
 
       "checks packet continuity" in {
@@ -45,7 +45,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val withDiscontinuity = packets.updated(0, packets.head.copy(header = packets.head.header.copy(continuityCounter = ContinuityCounter(15))))
 
         val p = Process.emitAll(withDiscontinuity).toSource pipe sectionCodec.depacketize
-        p.runLog.run shouldBe IndexedSeq(left(DepacketizationError.Discontinuity(Pid(0), ContinuityCounter(15), ContinuityCounter(2))))
+        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2)))))
       }
 
     }
