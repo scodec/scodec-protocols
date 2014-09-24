@@ -169,9 +169,9 @@ object SectionCodec {
     toSection: (BitVector, Option[SectionExtension], A) => String \/ B,
     fromSection: B => (BitVector, Option[SectionExtension], A))
 
-  private sealed trait UnknownSection extends Section
-  private case class UnknownNonExtendedSection(tableId: Int, privateBits: BitVector, data: ByteVector) extends UnknownSection
-  private case class UnknownExtendedSection(tableId: Int, privateBits: BitVector, extension: SectionExtension, data: ByteVector) extends UnknownSection with ExtendedSection
+  sealed trait UnknownSection extends Section
+  case class UnknownNonExtendedSection(tableId: Int, privateBits: BitVector, data: ByteVector) extends UnknownSection
+  case class UnknownExtendedSection(tableId: Int, privateBits: BitVector, extension: SectionExtension, data: ByteVector) extends UnknownSection with ExtendedSection
 
   private def unknownSectionCase(tableId: Int): Case[BitVector, UnknownSection] = Case(
     bits,

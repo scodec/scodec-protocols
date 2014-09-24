@@ -19,15 +19,15 @@ object CaptureFile {
       vector(Record.codec(hdr.ordering)).hlist
   }}.as[CaptureFile]
 
-  def payloadStreamDecoderPF[A](linkDecoders: PartialFunction[LinkType, StreamDecoder[A]]): StreamDecoder[Timestamped[A]] =
+  def payloadStreamDecoderPF[A](linkDecoders: PartialFunction[LinkType, StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
     payloadStreamDecoder(linkDecoders.lift)
 
-  def payloadStreamDecoder[A](linkDecoders: LinkType => Option[StreamDecoder[A]]): StreamDecoder[Timestamped[A]] =
+  def payloadStreamDecoder[A](linkDecoders: LinkType => Option[StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
     streamDecoder { global =>
       linkDecoders(global.network) match {
         case None => left(s"unsupported link type ${global.network}")
         case Some(decoder) => right {
-          hdr => decoder map { value => Timestamped(hdr.timestamp + global.thiszone, value) }
+          hdr => decoder map { value => TimeStamped(hdr.timestamp + global.thiszone, value) }
         }
       }
     }

@@ -1,12 +1,12 @@
 package scodec.protocols
 
-import scalaz.{ Lens, LensFamily }
+import scalaz.{ \/, Lens, LensFamily }
 import scalaz.stream.{ Cause, Process, Process0, Process1, process1 }
 import Process._
 import process1.Await1
 
-/** Integrates lenses and processes. */
-object LensCombinators {
+/** General purpose combinators for working with `Process1` that are not included in scalaz-stream. */
+object process1ext {
 
   /**
    * Lifts a `Process1[B, B]` to a `Process1[A, A]` using the provided lens.
@@ -57,4 +57,15 @@ object LensCombinators {
 
   private def liftSecond[A, B, C](f: B => Option[C])(p: Process1[A, B]): Process1[(C, A), (C, B)] =
     process1.lift[(C, A), (A, C)](_.swap) |> liftFirst(f)(p).map(_.swap)
+
+
+  /**
+   * Accepts values of type `X` and converts them to an `A` or `B`. If `A`, the `A`
+   * is fed to `p`. If `B`, the `B` is emitted directly.
+   */
+  def conditionallyFeed[A, B, X](p: Process1[A, B], f: X => A \/ B): Process1[X, B] =
+    process1.lift(f).pipe(p.liftL).map(_.fold(identity, identity))
+
+  def mapRight[I, L, A, B](p: Process1[I, L \/ A])(f: A => B): Process1[I, L \/ B] =
+    p.map { _ map f }
 }

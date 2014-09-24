@@ -6,39 +6,39 @@ import scalaz.concurrent.Task
 import scalaz.stream._
 import scodec.bits._
 
-class TimestampedTest extends ProtocolsSpec {
+class TimeStampedTest extends ProtocolsSpec {
 
-  "the Timestamped type" should {
+  "the TimeStamped type" should {
 
     "support calculation of rates" which {
 
       "emits accumulated feature values for each specified time period and emits a final value" in {
         val data = Process.emitAll(Seq(
-          Timestamped(0, 1),
-          Timestamped(0.5, 2),
-          Timestamped(1, 1),
-          Timestamped(2.3, 2))).toSource
-        data.pipe(Timestamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
-          Timestamped(0, 3), Timestamped(1, 1), Timestamped(2, 2))
-        data.pipe(Timestamped.rate(2.0)(x => x)).runLog.run shouldBe Vector(Timestamped(0, 4), Timestamped(2, 2))
+          TimeStamped(0, 1),
+          TimeStamped(0.5, 2),
+          TimeStamped(1, 1),
+          TimeStamped(2.3, 2))).toSource
+        data.pipe(TimeStamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
+          TimeStamped(0, 3), TimeStamped(1, 1), TimeStamped(2, 2))
+        data.pipe(TimeStamped.rate(2.0)(x => x)).runLog.run shouldBe Vector(TimeStamped(0, 4), TimeStamped(2, 2))
       }
 
       "emits 0s when values are skipped over" in {
-        val data = Process.emitAll(Seq(Timestamped(0, 1), Timestamped(3.3, 2))).toSource
-        data.pipe(Timestamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
-          Timestamped(0, 1), Timestamped(1, 0), Timestamped(2, 0), Timestamped(3, 2))
+        val data = Process.emitAll(Seq(TimeStamped(0, 1), TimeStamped(3.3, 2))).toSource
+        data.pipe(TimeStamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
+          TimeStamped(0, 1), TimeStamped(1, 0), TimeStamped(2, 0), TimeStamped(3, 2))
       }
 
       "supports calculation of an average bitrate" in {
         val data = Process.emitAll(Seq(
-          Timestamped(0, hex"deadbeef"),
-          Timestamped(1, hex"deadbeef"),
-          Timestamped(1.5, hex"deadbeef"),
-          Timestamped(2.5, hex"deadbeef"),
-          Timestamped(2.6, hex"deadbeef")
+          TimeStamped(0, hex"deadbeef"),
+          TimeStamped(1, hex"deadbeef"),
+          TimeStamped(1.5, hex"deadbeef"),
+          TimeStamped(2.5, hex"deadbeef"),
+          TimeStamped(2.6, hex"deadbeef")
         )).toSource
 
-        val bitsPerSecond = data.pipe(Timestamped.rate(1.0)(x => x.size * 8))
+        val bitsPerSecond = data.pipe(TimeStamped.rate(1.0)(x => x.size * 8))
 
         case class Average(samples: Int, value: Double)
         implicit val avgMonoid: Monoid[Average] = Monoid.instance((x, y) => {

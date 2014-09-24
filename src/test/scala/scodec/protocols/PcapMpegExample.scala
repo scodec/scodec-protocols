@@ -16,7 +16,7 @@ object PcapMpegExample extends App {
   case class IpAndPort(address: ip.v4.Address, port: ip.Port)
   case class CapturedPacket(source: IpAndPort, destination: IpAndPort, packet: mpeg.transport.Packet)
 
-  val decoder: StreamDecoder[Timestamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF {
+  val decoder: StreamDecoder[TimeStamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF {
     case LinkType.Ethernet =>
       for {
         ethernetHeader <- pcap.EthernetFrameHeader.sdecoder

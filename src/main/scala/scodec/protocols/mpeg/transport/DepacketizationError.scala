@@ -1,9 +1,7 @@
 package scodec.protocols.mpeg
 package transport
 
-sealed abstract class DepacketizationError {
-  def message: String
-}
+sealed abstract class DepacketizationError extends MpegTransportError
 
 object DepacketizationError {
   case class Discontinuity(last: ContinuityCounter, current: ContinuityCounter) extends DepacketizationError {
