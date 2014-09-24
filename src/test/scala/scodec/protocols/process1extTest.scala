@@ -5,7 +5,7 @@ import scalaz.Lens
 import scalaz.concurrent.Task
 import scalaz.stream._
 
-class LensCombinatorsTest extends ProtocolsSpec {
+class process1extTest extends ProtocolsSpec {
 
   case class Point(x: Int, y: Int)
   val lensX = Lens.lensu[Point, Int]((p, x) => p.copy(x = x), _.x)
@@ -21,7 +21,7 @@ class LensCombinatorsTest extends ProtocolsSpec {
       )
       forAll (Gen.oneOf(sources)) { (src: Process[Task, Point]) =>
         val inc: Process1[Int, Int] = process1.lift { _ + 1 }
-        val result = src.pipe(LensCombinators.lens(lensX)(inc)).runLog.run
+        val result = src.pipe(process1ext.lens(lensX)(inc)).runLog.run
         result shouldBe Vector(Point(2, 2), Point(4, 4))
       }
     }

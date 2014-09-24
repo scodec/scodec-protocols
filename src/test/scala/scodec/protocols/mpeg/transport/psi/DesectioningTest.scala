@@ -7,13 +7,13 @@ import scalaz.{ \/-, -\/, NonEmptyList }
 import scalaz.\/.{ right, left }
 import scalaz.stream.Process
 
-class SectionAccumulatorTest extends ProtocolsSpec {
+class DesectioningTest extends ProtocolsSpec {
 
-  "the SectionAccumulator class" should {
+  "the psi package" should {
 
-    "support desectioning a stream of sections in to a stream of grouped sections" which {
+    "support desectioning a stream of extended sections in to a stream of grouped sections" which {
 
-      val desection = SectionAccumulator.desection[ProgramAssociationSection]
+      val des = desectionExtendedSections[ProgramAssociationSection]
 
       val pat3: ProgramAssociationTable = {
         val pidMap = (0 until ProgramAssociationTable.MaxProgramsPerSection * 3).map { n => ProgramNumber(n) -> Pid(n) }.toMap
@@ -21,7 +21,7 @@ class SectionAccumulatorTest extends ProtocolsSpec {
       }
 
       "handles stream of a specific table id and extension" in {
-        val p = Process.emitAll(pat3.toSections).toSource pipe desection map {
+        val p = Process.emitAll(pat3.toSections).toSource pipe des map {
           case \/-(sections) => ProgramAssociationTable.fromSections(sections)
           case l @ -\/(_) => l
         }
@@ -33,7 +33,7 @@ class SectionAccumulatorTest extends ProtocolsSpec {
         val patB = pat3.copy(tsid = TransportStreamId(pat3.tsid.value + 1), programByPid = pat3.programByPid.map { case (prg, Pid(n)) => prg -> Pid(n + 1)} )
 
         val sections = Process.emitAll(patA.toSections) interleave Process.emitAll(patB.toSections)
-        val p = sections.toSource pipe desection map { _ flatMap ProgramAssociationTable.fromSections }
+        val p = sections.toSource pipe des map { _ flatMap ProgramAssociationTable.fromSections }
         p.runLog.run shouldBe IndexedSeq(right(patA), right(patB))
       }
     }
