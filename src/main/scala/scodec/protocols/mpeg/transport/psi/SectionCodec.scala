@@ -69,8 +69,6 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     }.run(bits)
   }
 
-
-
   /**
    * Stream transducer that converts packets in to sections.
    *
@@ -117,16 +115,19 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
       } else {
         decodeSection(header)(bitsPostHeader) match {
           case -\/(err) =>
-            Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ go(state - pid)
+            val rest = bitsPostHeader.drop(neededBits)
+            Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ potentiallyNextSection(state, pid, rest)
           case \/-((rest, section)) =>
-            Process.emit(pidSpecificSection(pid, section)) ++ {
-              // Peek at table_id -- if we see 0xff, then there are no further sections in this packet
-              if (rest.size >= 8 && rest.take(8) != BitVector.high(8))
-                nextSection(state - pid, pid, Some(0), rest)
-              else go(state - pid)
-            }
+            Process.emit(pidSpecificSection(pid, section)) ++ potentiallyNextSection(state, pid, rest)
         }
       }
+    }
+
+    def potentiallyNextSection(state: Map[Pid, SectionDecodeState], pid: Pid, payload: BitVector): Step = {
+      // Peek at table_id -- if we see 0xff, then there are no further sections in this packet
+      if (payload.size >= 8 && payload.take(8) != BitVector.high(8))
+        nextSection(state - pid, pid, Some(0), payload)
+      else go(state - pid)
     }
 
     def go(state: Map[Pid, SectionDecodeState]): Step =

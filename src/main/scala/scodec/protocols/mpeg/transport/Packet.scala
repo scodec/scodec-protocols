@@ -30,6 +30,50 @@ object Packet {
     go(true, startingCountinuityCounter, section, Vector.empty)
   }
 
+  def packetizeMany(pid: Pid, startingCountinuityCounter: ContinuityCounter, sections: Vector[BitVector]): Vector[Packet] = {
+
+    /**
+     * Accumulates up to `n` bits from the specified bit vectors.
+     * Returns a triple consisting of:
+     *  - the accumulated bits (up to size `n`)
+     *  - the left over bits of the last consumed input section
+     *  - the remaining unconsumed sections
+     */
+    def accumulateN(n: Long, sections: Vector[BitVector]): (BitVector, BitVector, Vector[BitVector]) = {
+      @annotation.tailrec
+      def go(needed: Long, remainingSections: Vector[BitVector], acc: BitVector): (BitVector, BitVector, Vector[BitVector]) = {
+        if (remainingSections.isEmpty) (acc, BitVector.empty, Vector.empty)
+        else {
+          val (x, rem) = remainingSections.head.splitAt(needed)
+          val newAcc = acc ++ x
+          val left = needed - x.size
+          if (left == 0) (newAcc, rem, remainingSections.tail)
+          else go(left, remainingSections.tail, newAcc)
+        }
+      }
+      go(n, sections, BitVector.empty)
+    }
+
+    @annotation.tailrec
+    def go(cc: ContinuityCounter, remaining: BitVector, remainingSections: Vector[BitVector], acc: Vector[Packet]): Vector[Packet] = {
+      if (remaining.isEmpty && remainingSections.isEmpty) acc
+      else {
+        val (packetData, overflow, remSections) = accumulateN(184 * 8, remaining +: remainingSections)
+        val payloadUnitStart = {
+          if (remSections.size < remainingSections.size) Some((remaining.size / 8).toInt)
+          else None
+        }
+        val (adjPacketData, adjOverflow) = {
+          if (payloadUnitStart.isDefined) (packetData.take(183 * 8), packetData.drop(183 * 8) ++ overflow)
+          else (packetData, overflow)
+        }
+        val packet = payload(pid, cc, payloadUnitStart, adjPacketData)
+        go(cc.next, adjOverflow, remSections, acc :+ packet)
+      }
+    }
+    go(startingCountinuityCounter, BitVector.empty, sections, Vector.empty)
+  }
+
   def payload(pid: Pid, continuityCounter: ContinuityCounter, payloadUnitStart: Option[Int], payload: BitVector): Packet = {
     val thisPid = pid
     val thisContinuityCounter = continuityCounter

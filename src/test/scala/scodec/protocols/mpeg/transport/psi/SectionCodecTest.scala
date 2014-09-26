@@ -6,6 +6,9 @@ package psi
 import scalaz.\/.{ right, left }
 import scalaz.stream.Process
 
+import scodec.bits._
+import scodec.codecs._
+
 class SectionCodecTest extends ProtocolsSpec {
 
   "the SectionCodec class" should {
@@ -48,6 +51,27 @@ class SectionCodecTest extends ProtocolsSpec {
         p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2)))))
       }
 
+      "upon decoding failure of a section, remaining sections in packet are decoded" in {
+        case class SmallSection(x: Int) extends Section { def tableId = 0 }
+        val sections = Vector(SmallSection(0), SmallSection(1))
+
+        implicit val sfc = SectionFragmentCodec.nonExtended[SmallSection, Int](0, (p, i) => SmallSection(i), ss => (bin"010", ss.x))(constant(bin"0") ~> uint(7))
+        val sc = SectionCodec.supporting[SmallSection]
+
+        val encodedSections = sections map sc.encodeValid
+        val ss0 = encodedSections(0).bytes
+        val ss1 = encodedSections(1).bytes
+        val indexOfInt = ss0.toIndexedSeq.zipWithIndex.find { case (x, idx) => ss1(idx) != x }.map { case (x, idx) => idx }.get
+        val ss255 = ss0.update(indexOfInt, 255.toByte)
+
+        val packets = Packet.packetizeMany(Pid(0), ContinuityCounter(0), ss255.bits +: encodedSections)
+        val p = Process.emitAll(packets).toSource pipe sc.depacketize
+
+        p.runLog.run shouldBe (
+          PidStamped(Pid(0), left(DepacketizationError.Decoding("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)"))) +:
+          sections.map { x => PidStamped(Pid(0), right(x)) }
+        )
+      }
     }
   }
 
