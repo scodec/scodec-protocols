@@ -2,9 +2,10 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.{ \/, NonEmptyList }
+import scalaz.{ \/, NonEmptyList, Tag, Tags }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
+import scalaz.syntax.traverse._
 import scodec.Codec
 import scodec.bits._
 import scodec.codecs._
@@ -14,23 +15,57 @@ case class ConditionalAccessTable(
   version: Int,
   current: Boolean,
   descriptors: Vector[ConditionalAccessDescriptor]
-)
+) {
+  def toSections: NonEmptyList[ConditionalAccessSection] = ConditionalAccessTable.toSections(this)
+}
 
 object ConditionalAccessTable {
 
-  def toSections(pat: ConditionalAccessTable): Vector[ConditionalAccessSection] = {
-    ???
-    /*
-    val entries = pat.programByPid.toVector.sortBy { case (ProgramNumber(n), _) => n }
-    val groupedEntries = entries.grouped(MaxProgramsPerSection).toVector
-    groupedEntries.zipWithIndex.map { case (es, idx) =>
-      ConditionalAccessSection(SectionExtension(pat.tsid.value, pat.version, pat.current, idx, groupedEntries.size), es)
+  def toSections(cat: ConditionalAccessTable): NonEmptyList[ConditionalAccessSection] = {
+    val grouped = groupBasedOnSize(cat.descriptors)
+    val lastSection = grouped.size - 1
+    val sections = grouped.zipWithIndex.map { case (ds, idx) =>
+      ConditionalAccessSection(SectionExtension(65535, cat.version, cat.current, idx, lastSection), ds)
     }
-    */
+    if (sections.isEmpty)
+      NonEmptyList(ConditionalAccessSection(SectionExtension(65535, cat.version, cat.current, 0, 0), Vector.empty))
+    else
+      NonEmptyList(sections.head, sections.tail: _*)
+  }
+
+  private def groupBasedOnSize(sections: Vector[ConditionalAccessDescriptor]): Vector[Vector[ConditionalAccessDescriptor]] = {
+    val MaxBitsLeft = (1024 - 12) * 8
+    def sizeOf(c: ConditionalAccessDescriptor): Long = (6 * 8) + c.privateData.size
+    @annotation.tailrec
+    def go(remaining: Vector[ConditionalAccessDescriptor], cur: Vector[ConditionalAccessDescriptor], bitsLeft: Long, acc: Vector[Vector[ConditionalAccessDescriptor]]): Vector[Vector[ConditionalAccessDescriptor]] = {
+      if (remaining.isEmpty) acc :+ cur
+      else {
+        val next = remaining.head
+        val bitsNeeded = (6 * 8) + sizeOf(next)
+        val newBitsLeft = bitsLeft - bitsNeeded
+        if (newBitsLeft >= 0) go(remaining.tail, cur :+ next, newBitsLeft, acc)
+        else {
+          go(remaining, Vector.empty, MaxBitsLeft, acc :+ cur)
+        }
+      }
+    }
+    go(sections, Vector.empty, MaxBitsLeft, Vector.empty)
   }
 
   def fromSections(sections: NonEmptyList[ConditionalAccessSection]): String \/ ConditionalAccessTable = {
-    ???
+    def extract[A](name: String, f: ConditionalAccessSection => A): String \/ A = {
+      val extracted = sections.map(f).list.distinct
+      if (extracted.size == 1) right(extracted.head)
+      else left(s"sections have diferring $name: " + extracted.mkString(", "))
+    }
+    for {
+      version <- extract("versions", _.extension.version)
+      current = Tag.unwrap(sections.foldMap { p => Tags.Disjunction(p.extension.current) })
+    } yield ConditionalAccessTable(
+      version,
+      current,
+      sections.foldMap { _.descriptors }
+    )
   }
 }
 
