@@ -165,6 +165,8 @@ object SectionCodec {
   def supporting[S <: Section : SectionFragmentCodec]: SectionCodec =
     empty.supporting[S]
 
+  def psi: SectionCodec = supporting[ProgramAssociationSection].supporting[ProgramMapSection].supporting[ConditionalAccessSection]
+
   private case class Case[A, B <: Section](
     codec: Codec[A],
     toSection: (BitVector, Option[SectionExtension], A) => String \/ B,

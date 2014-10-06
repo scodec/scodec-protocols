@@ -38,16 +38,18 @@ package object psi {
     go(Map.empty)
   }
 
-  def desection: Process1[Section, DesectioningError \/ NonEmptyList[Section]] = {
+  def desection: Process1[Section, DesectioningError \/ GroupedSections] = {
     // Lift output NEL type to a supertype
-    val des: Process1[ExtendedSection, DesectioningError \/ NonEmptyList[Section]] = desectionExtendedSections
+    val des: Process1[ExtendedSection, DesectioningError \/ GroupedSections] = desectionExtendedSections.map { _ map { sections =>
+      GroupedSections(sections.head.tableId, sections)
+    }}
     process1ext.conditionallyFeed(des, {
       case s: ExtendedSection => left(s)
-      case s: Section => right(right(s.wrapNel))
+      case s: Section => right(right(GroupedSections(s.tableId, s.wrapNel)))
     })
   }
 
-  def desectionErrAware: Process1[MpegTransportError \/ Section, MpegTransportError \/ NonEmptyList[Section]] = {
+  def desectionErrAware: Process1[MpegTransportError \/ Section, MpegTransportError \/ GroupedSections] = {
     process1ext.conditionallyFeed(desection, {
       case \/-(section) => left(section)
       case e @ -\/(_) => right(e)

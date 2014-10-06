@@ -21,7 +21,7 @@ class DesectioningTest extends ProtocolsSpec {
       }
 
       "handles stream of a specific table id and extension" in {
-        val p = Process.emitAll(pat3.toSections).toSource pipe des map {
+        val p = Process.emitAll(pat3.toSections.list).toSource pipe des map {
           case \/-(sections) => ProgramAssociationTable.fromSections(sections)
           case l @ -\/(_) => l
         }
@@ -32,7 +32,7 @@ class DesectioningTest extends ProtocolsSpec {
         val patA = pat3
         val patB = pat3.copy(tsid = TransportStreamId(pat3.tsid.value + 1), programByPid = pat3.programByPid.map { case (prg, Pid(n)) => prg -> Pid(n + 1)} )
 
-        val sections = Process.emitAll(patA.toSections) interleave Process.emitAll(patB.toSections)
+        val sections = Process.emitAll(patA.toSections.list) interleave Process.emitAll(patB.toSections.list)
         val p = sections.toSource pipe des map { _ flatMap ProgramAssociationTable.fromSections }
         p.runLog.run shouldBe IndexedSeq(right(patA), right(patB))
       }

@@ -6,6 +6,7 @@ import scalaz.{ \/, NonEmptyList, Tag, Tags }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
 import scalaz.syntax.all._
+import scalaz.syntax.std.option._
 
 import scalaz.stream.{ Process, Process1 }
 
@@ -18,21 +19,26 @@ case class ProgramAssociationTable(
   version: Int,
   current: Boolean,
   programByPid: Map[ProgramNumber, Pid]
-) {
-  def toSections: Vector[ProgramAssociationSection] = ProgramAssociationTable.toSections(this)
+) extends Table {
+  def tableId = ProgramAssociationSection.TableId
+  def toSections: NonEmptyList[ProgramAssociationSection] = ProgramAssociationTable.toSections(this)
 }
 
 object ProgramAssociationTable {
 
   val MaxProgramsPerSection = 253
 
-  def toSections(pat: ProgramAssociationTable): Vector[ProgramAssociationSection] = {
+  def toSections(pat: ProgramAssociationTable): NonEmptyList[ProgramAssociationSection] = {
     val entries = pat.programByPid.toVector.sortBy { case (ProgramNumber(n), _) => n }
     val groupedEntries = entries.grouped(MaxProgramsPerSection).toVector
     val lastSection = groupedEntries.size - 1
-    groupedEntries.zipWithIndex.map { case (es, idx) =>
+    val sections = groupedEntries.zipWithIndex.map { case (es, idx) =>
       ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, idx, lastSection), es)
     }
+    if (sections.isEmpty)
+      NonEmptyList(ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, 0, 0), Vector.empty))
+    else
+      NonEmptyList(sections.head, sections.tail: _*)
   }
 
   def fromSections(sections: NonEmptyList[ProgramAssociationSection]): String \/ ProgramAssociationTable = {
@@ -56,9 +62,12 @@ object ProgramAssociationTable {
     )
   }
 
-
-
-
+  implicit val tableSupport: TableSupport[ProgramAssociationTable] = new TableSupport[ProgramAssociationTable] {
+    def tableId = ProgramAssociationSection.TableId
+    def toTable(gs: GroupedSections) =
+      gs.as[ProgramAssociationSection].toRightDisjunction(s"Not PAT sections").flatMap { sections => fromSections(sections) }
+    def toSections(pat: ProgramAssociationTable) = ProgramAssociationTable.toSections(pat)
+  }
 }
 
 case class ProgramAssociationSection(

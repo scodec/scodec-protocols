@@ -6,6 +6,7 @@ import scalaz.{ \/, NonEmptyList, Tag, Tags }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
 import scalaz.syntax.traverse._
+import scalaz.syntax.std.option._
 import scodec.Codec
 import scodec.bits._
 import scodec.codecs._
@@ -15,7 +16,8 @@ case class ConditionalAccessTable(
   version: Int,
   current: Boolean,
   descriptors: Vector[ConditionalAccessDescriptor]
-) {
+) extends Table {
+  def tableId = ConditionalAccessSection.TableId
   def toSections: NonEmptyList[ConditionalAccessSection] = ConditionalAccessTable.toSections(this)
 }
 
@@ -66,6 +68,13 @@ object ConditionalAccessTable {
       current,
       sections.foldMap { _.descriptors }
     )
+  }
+
+  implicit val tableSupport: TableSupport[ConditionalAccessTable] = new TableSupport[ConditionalAccessTable] {
+    def tableId = ConditionalAccessSection.TableId
+    def toTable(gs: GroupedSections) =
+      gs.as[ConditionalAccessSection].toRightDisjunction(s"Not CAT sections").flatMap { sections => fromSections(sections) }
+    def toSections(cat: ConditionalAccessTable) = ConditionalAccessTable.toSections(cat)
   }
 }
 

@@ -5,14 +5,14 @@ import scalaz.syntax.monoid._
 import scalaz.stream.{ Process, Process1, process1 }
 
 /** Value timestamped with UTC time. */
-case class TimeStamped[A](time: Double, value: A)
+case class TimeStamped[+A](time: Double, value: A)
 
 object TimeStamped {
 
   def now[A](a: A): TimeStamped[A] = TimeStamped(System.currentTimeMillis / 1000.0, a)
 
   object Lenses {
-    def Timestamp[A]: Lens[TimeStamped[A], Double] = Lens.lensu((t, s) => t.copy(time = s), _.time)
+    def TimeStamp[A]: Lens[TimeStamped[A], Double] = Lens.lensu((t, s) => t.copy(time = s), _.time)
     def Value[A]: Lens[TimeStamped[A], A] = Lens.lensu((t, a) => t.copy(value = a), _.value)
 
     def ValueMap[A, B]: LensFamily[TimeStamped[A], TimeStamped[B], A, B] =
