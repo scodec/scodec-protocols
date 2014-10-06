@@ -48,11 +48,4 @@ package object psi {
       case s: Section => right(right(GroupedSections(s.tableId, s.wrapNel)))
     })
   }
-
-  def desectionErrAware: Process1[MpegTransportError \/ Section, MpegTransportError \/ GroupedSections] = {
-    process1ext.conditionallyFeed(desection, {
-      case \/-(section) => left(section)
-      case e @ -\/(_) => right(e)
-    })
-  }
 }

@@ -7,7 +7,7 @@ import scalaz.{ \/, \/-, -\/, NonEmptyList }
 import \/.{ left, right }
 import scalaz.stream._
 
-case class TableBuildingError(tableId: Int, message: String) extends MpegTransportError
+case class TableBuildingError(tableId: Int, message: String) extends MpegError
 
 class TableBuilder private (cases: Map[Int, TableSupport[_]]) {
 
@@ -16,7 +16,7 @@ class TableBuilder private (cases: Map[Int, TableSupport[_]]) {
     new TableBuilder(cases + (ts.tableId -> ts))
   }
 
-  def sectionsToTables: Process1[GroupedSections, MpegTransportError \/ Table] = {
+  def sectionsToTables: Process1[GroupedSections, TableBuildingError \/ Table] = {
     Process.await1[GroupedSections].flatMap { gs =>
       cases.get(gs.tableId) match {
         case None => Process.halt
@@ -27,13 +27,6 @@ class TableBuilder private (cases: Map[Int, TableSupport[_]]) {
           }
       }
     }.repeat
-  }
-
-  def sectionsToTablesErrAware: Process1[MpegTransportError \/ GroupedSections, MpegTransportError \/ Table] = {
-    process1ext.conditionallyFeed(sectionsToTables, {
-      case \/-(gs) => left(gs)
-      case e @ -\/(_) => right(e)
-    })
   }
 }
 
