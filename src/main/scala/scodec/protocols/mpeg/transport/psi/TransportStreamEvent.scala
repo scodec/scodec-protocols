@@ -20,10 +20,14 @@ object TransportStreamEvent {
   def metadata[A](pid: Pid, md: A): TransportStreamEvent = Metadata(Some(pid), md)
   def error(pid: Pid, e: MpegError): TransportStreamEvent = Error(pid, e)
 
-  def stream(sectionCodec: SectionCodec, tableBuilder: TableBuilder): Process1[Packet, TransportStreamEvent] = {
+  def stream(
+    sectionCodec: SectionCodec,
+    tableBuilder: TableBuilder,
+    group: Process1[Section, GroupingError \/ GroupedSections] = GroupedSections.group): Process1[Packet, TransportStreamEvent] = {
+
     import MpegError._
     val sectionsToTables: Process1[MpegError \/ Section, MpegError \/ (TransportStreamIndex \/ TableMessage)] =
-      joinErrors(desection) |> joinErrors(tableBuilder.sectionsToTables) |> passErrors(TransportStreamIndex.build)
+      joinErrors(group) |> joinErrors(tableBuilder.sectionsToTables) |> passErrors(TransportStreamIndex.build)
 
     sectionCodec.depacketize.pipe(PidStamped.preservePidStamps(sectionsToTables)).map {
       case PidStamped(pid, value) => value match {

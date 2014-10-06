@@ -7,11 +7,11 @@ import scalaz.{ \/-, -\/, NonEmptyList }
 import scalaz.\/.{ right, left }
 import scalaz.stream.Process
 
-class DesectioningTest extends ProtocolsSpec {
+class GroupingTest extends ProtocolsSpec {
 
-  "the psi package" should {
+  "the GroupedSections class" should {
 
-    "support desectioning a stream of extended sections in to a stream of grouped sections" which {
+    "support grouping a stream of extended sections in to a stream of grouped sections" which {
 
       val des = desectionExtendedSections[ProgramAssociationSection]
 
