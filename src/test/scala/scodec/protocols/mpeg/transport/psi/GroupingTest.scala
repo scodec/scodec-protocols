@@ -13,7 +13,7 @@ class GroupingTest extends ProtocolsSpec {
 
     "support grouping a stream of extended sections in to a stream of grouped sections" which {
 
-      val des = groupExtendedSections[ProgramAssociationSection]
+      val des = GroupedSections.groupExtendedSections[ProgramAssociationSection]
 
       val pat3: ProgramAssociationTable = {
         val pidMap = (0 until ProgramAssociationTable.MaxProgramsPerSection * 3).map { n => ProgramNumber(n) -> Pid(n) }.toMap
