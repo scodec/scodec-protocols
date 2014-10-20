@@ -79,7 +79,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
         val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
-        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Decoding("CRC (-11537665) does not match generated CRC (18564404)"))))
+        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Decoding("CRC mismatch: calculated 18564404 does not equal -11537665"))))
 
       }
     }

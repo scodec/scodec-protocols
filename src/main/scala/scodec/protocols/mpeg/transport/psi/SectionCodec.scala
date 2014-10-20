@@ -52,7 +52,9 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
 
     val c = cases.getOrElse(header.tableId, unknownSectionCase(header.tableId).asInstanceOf[Case[Any, Section]])
 
-    def ensureCrcMatches(crc: Int, genCrc: Int) = if (crc == genCrc) { println("CRC matches");().right }else s"CRC ($crc) does not match generated CRC ($genCrc)".left
+    def ensureCrcMatches(actual: Int, expected: Int) = 
+      if (actual == expected) { ().right }
+      else s"CRC mismatch: calculated $expected does not equal $actual".left
 
     def generateCrc(ext: SectionExtension, data: Any) = for {
       encExt <- Codec[SectionExtension].encode(ext)
@@ -63,9 +65,9 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
       ext <- DecodingContext(Codec[SectionExtension].decode)
       data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec).decode)
-      crc <- DecodingContext(int32.decode)
-      genCrc <- DecodingContext.liftE(generateCrc(ext, data))
-      _ <- DecodingContext.liftE(ensureCrcMatches(crc, genCrc.toInt()))
+      actualCrc <- DecodingContext(int32.decode)
+      expectedCrc <- DecodingContext.liftE(generateCrc(ext, data))
+      _ <- DecodingContext.liftE(ensureCrcMatches(actualCrc, expectedCrc.toInt()))
     } yield Some(ext) -> data
 
     def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {
