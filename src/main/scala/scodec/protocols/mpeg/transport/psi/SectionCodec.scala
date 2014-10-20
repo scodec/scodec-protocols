@@ -6,6 +6,7 @@ import scalaz.{ \/, \/-, -\/ }
 import scalaz.\/.{ right, left }
 import scalaz.std.AllInstances._
 import scalaz.syntax.std.option._
+import scalaz.syntax.either._
 
 import scalaz.stream.{ Process1, Process }
 
@@ -48,27 +49,35 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
   } yield section).run(bits)
 
   private def decodeSection(header: SectionHeader)(bits: BitVector): String \/ (BitVector, Section) = {
+
     val c = cases.getOrElse(header.tableId, unknownSectionCase(header.tableId).asInstanceOf[Case[Any, Section]])
-    val decoded: DecodingContext[(Option[SectionExtension], Any)] =
-      if (header.extendedSyntax) {
-        for {
-          ext <- DecodingContext(Codec[SectionExtension].decode)
-          data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec).decode)
-          crc <- DecodingContext(int32.decode)
-        } yield (Some(ext), data)
-      } else {
-        for {
-          data <- DecodingContext(fixedSizeBytes(header.length, c.codec).decode)
-        } yield (None, data)
-      }
 
-    decoded.flatMap { case (ext, data) =>
-      DecodingContext { bits =>
-        c.toSection(header.privateBits, ext, data).map { res => (bits, res) }
-      }
-    }.run(bits)
+    def ensureCrcMatches(crc: Int, genCrc: Int) = if (crc == genCrc) { println("CRC matches");().right }else s"CRC ($crc) does not match generated CRC ($genCrc)".left
+
+    def generateCrc(ext: SectionExtension, data: Any) = for {
+      encExt <- Codec[SectionExtension].encode(ext)
+      encData <- c.codec.encode(data)
+      encHeader <- Codec[SectionHeader].encode(header)
+    } yield crc32mpeg(encHeader ++ encExt ++ encData)
+
+    def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
+      ext <- DecodingContext(Codec[SectionExtension].decode)
+      data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec).decode)
+      crc <- DecodingContext(int32.decode)
+      genCrc <- DecodingContext.liftE(generateCrc(ext, data))
+      _ <- DecodingContext.liftE(ensureCrcMatches(crc, genCrc.toInt()))
+    } yield Some(ext) -> data
+
+    def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {
+      data <- DecodingContext(fixedSizeBytes(header.length, c.codec).decode)
+    } yield None -> data
+
+    for {
+      result <- ( if (header.extendedSyntax) decodeExtended else decodeStandard ).run(bits)
+      (remainingBits, (ext, data)) = result
+       section <- c.toSection(header.privateBits, ext, data)
+     } yield remainingBits -> section
   }
-
   /**
    * Stream transducer that converts packets in to sections.
    *
