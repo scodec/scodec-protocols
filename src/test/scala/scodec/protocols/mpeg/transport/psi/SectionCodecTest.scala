@@ -72,6 +72,16 @@ class SectionCodecTest extends ProtocolsSpec {
           sections.map { x => PidStamped(Pid(0), right(x)) }
         )
       }
+
+      "reports invalid CRC" in {
+        val pas = ProgramAssociationTable.toSections(ProgramAssociationTable(TransportStreamId(1), 15, true, Map(ProgramNumber(1) -> Pid(2)))).head
+        val pasEnc = sectionCodec.encodeValid(pas)
+        val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
+        val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
+        val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
+        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Decoding("CRC mismatch: calculated 18564404 does not equal -11537665"))))
+
+      }
     }
   }
 
