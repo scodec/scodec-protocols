@@ -36,7 +36,10 @@ object TableBuilder {
 
   def supporting[T <: Table : TableSupport] = empty.supporting[T]
 
-  def psi: TableBuilder = supporting[ProgramAssociationTable].supporting[ProgramMapTable].supporting[ConditionalAccessTable]
+  def psi: TableBuilder =
+    supporting[ProgramAssociationTable].
+    supporting[ProgramMapTable].
+    supporting[ConditionalAccessTable]
 }
 
 trait TableSupport[T <: Table] {

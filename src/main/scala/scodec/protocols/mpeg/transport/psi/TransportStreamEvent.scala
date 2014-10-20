@@ -8,7 +8,7 @@ import scalaz.stream._
 
 import psi.{ Table => TableMessage }
 
-sealed abstract class TransportStreamEvent
+abstract class TransportStreamEvent
 
 object TransportStreamEvent {
   case class Table(pid: Pid, table: TableMessage) extends TransportStreamEvent
@@ -23,9 +23,11 @@ object TransportStreamEvent {
   def stream(
     sectionCodec: SectionCodec,
     tableBuilder: TableBuilder,
-    group: Process1[Section, GroupingError \/ GroupedSections] = GroupedSections.group): Process1[Packet, TransportStreamEvent] = {
+    group: Process1[Section, GroupingError \/ GroupedSections] = GroupedSections.group
+  ): Process1[Packet, TransportStreamEvent] = {
 
     import MpegError._
+
     val sectionsToTables: Process1[MpegError \/ Section, MpegError \/ (TransportStreamIndex \/ TableMessage)] =
       joinErrors(group) |> joinErrors(tableBuilder.sectionsToTables) |> passErrors(TransportStreamIndex.build)
 
