@@ -1,6 +1,8 @@
 package scodec.protocols.mpeg
 package transport
 
+import scodec.Err
+
 sealed abstract class DepacketizationError extends MpegError
 
 object DepacketizationError {
@@ -8,7 +10,7 @@ object DepacketizationError {
     def message = s"pid discontinuity: $last to $current"
   }
 
-  case class Decoding(decodingError: String) extends DepacketizationError {
+  case class Decoding(decodingError: Err) extends DepacketizationError {
     def message = s"decoding error: $decodingError"
   }
 }

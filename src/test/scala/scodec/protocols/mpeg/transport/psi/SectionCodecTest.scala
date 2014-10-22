@@ -6,6 +6,7 @@ package psi
 import scalaz.\/.{ right, left }
 import scalaz.stream.Process
 
+import scodec.Err
 import scodec.bits._
 import scodec.codecs._
 
@@ -68,7 +69,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val p = Process.emitAll(packets).toSource pipe sc.depacketize
 
         p.runLog.run shouldBe (
-          PidStamped(Pid(0), left(DepacketizationError.Decoding("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)"))) +:
+          PidStamped(Pid(0), left(DepacketizationError.Decoding(Err("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)")))) +:
           sections.map { x => PidStamped(Pid(0), right(x)) }
         )
       }
@@ -79,7 +80,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
         val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
-        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Decoding("CRC mismatch: calculated 18564404 does not equal -11537665"))))
+        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Decoding(Err("CRC mismatch: calculated 18564404 does not equal -11537665")))))
 
       }
     }

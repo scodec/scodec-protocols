@@ -1,6 +1,7 @@
 package scodec.protocols.pcap
 
 import scalaz.\/.{ left, right }
+import scodec.Err
 import scodec.bits.{ BitVector, ByteOrdering }
 import scodec.Codec
 import scodec.codecs._
@@ -26,7 +27,7 @@ object GlobalHeader {
       uint32.decode(buf).flatMap {
         case (rest, MagicNumber) => right((rest, ByteOrdering.BigEndian))
         case (rest, MagicNumberRev) => right((rest, ByteOrdering.LittleEndian))
-        case (rest, other) => left(s"unable to detect byte ordering due to unrecognized magic number $other")
+        case (rest, other) => left(Err(s"unable to detect byte ordering due to unrecognized magic number $other"))
       }
 
     override def toString = "byteOrdering"

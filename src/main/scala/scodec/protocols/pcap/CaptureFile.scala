@@ -4,7 +4,7 @@ package pcap
 import scalaz.\/
 import scalaz.\/.{ left, right }
 import scalaz.syntax.std.option._
-import scodec.{ Codec, Decoder }
+import scodec.{ Codec, Decoder, Err }
 import scodec.bits.BitVector
 import scodec.codecs._
 import scodec.stream._
@@ -25,7 +25,7 @@ object CaptureFile {
   def payloadStreamDecoder[A](linkDecoders: LinkType => Option[StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
     streamDecoder { global =>
       linkDecoders(global.network) match {
-        case None => left(s"unsupported link type ${global.network}")
+        case None => left(Err(s"unsupported link type ${global.network}"))
         case Some(decoder) => right {
           hdr => decoder map { value => TimeStamped(hdr.timestamp + global.thiszone, value) }
         }
@@ -39,7 +39,7 @@ object CaptureFile {
       }
     }}
 
-  def streamDecoder[A](f: GlobalHeader => String \/ (RecordHeader => StreamDecoder[A])): StreamDecoder[A] = for {
+  def streamDecoder[A](f: GlobalHeader => Err \/ (RecordHeader => StreamDecoder[A])): StreamDecoder[A] = for {
     global <- decode.once[GlobalHeader]
     decoderFn <- f(global).fold(decode.fail, decode.emit)
     values <- decode.many(RecordHeader.codec(global.ordering)) flatMap { header =>

@@ -5,13 +5,13 @@ package psi
 import scalaz.\/
 import scalaz.syntax.std.option._
 import scodec.bits._
-import scodec.Codec
+import scodec.{ Codec, Err }
 
 trait SectionFragmentCodec[A] {
   type Repr
   def tableId: Int
   def subCodec: Codec[Repr]
-  def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr): String \/ A
+  def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr): Err \/ A
   def fromSection(section: A): (BitVector, Option[SectionExtension], Repr)
 }
 
@@ -30,7 +30,7 @@ object SectionFragmentCodec {
       def tableId = tid
       def subCodec = Codec[Repr]
       def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
-        extension.map { ext => build(privateBits, ext, data) } \/> "extended section missing expected section extension"
+        extension.map { ext => build(privateBits, ext, data) } \/> Err("extended section missing expected section extension")
       def fromSection(section: A) =
         extract(section) match { case (privateBits, ext, data) => (privateBits, Some(ext), data) }
     }

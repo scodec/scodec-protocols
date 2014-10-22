@@ -10,7 +10,7 @@ import scalaz.syntax.either._
 
 import scalaz.stream.{ Process1, Process }
 
-import scodec.{ Codec, DecodingContext }
+import scodec.{ Codec, DecodingContext, Err }
 import scodec.bits._
 import scodec.codecs._
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
@@ -26,7 +26,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     )))
 
   def encode(section: Section) = for {
-    c <- cases.get(section.tableId) \/> s"unsupported table id ${section.tableId}"
+    c <- cases.get(section.tableId) \/> Err(s"unsupported table id ${section.tableId}")
     (privateBits, extension, data) = c.fromSection(section)
     encData <- extension match {
       case None => c.codec.encode(data)
@@ -48,13 +48,13 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     section <- DecodingContext(decodeSection(header))
   } yield section).run(bits)
 
-  private def decodeSection(header: SectionHeader)(bits: BitVector): String \/ (BitVector, Section) = {
+  private def decodeSection(header: SectionHeader)(bits: BitVector): Err \/ (BitVector, Section) = {
 
     val c = cases.getOrElse(header.tableId, unknownSectionCase(header.tableId).asInstanceOf[Case[Any, Section]])
 
-    def ensureCrcMatches(actual: Int, expected: Int) = 
+    def ensureCrcMatches(actual: Int, expected: Int) =
       if (actual == expected) { ().right }
-      else s"CRC mismatch: calculated $expected does not equal $actual".left
+      else Err(s"CRC mismatch: calculated $expected does not equal $actual").left
 
     def generateCrc(ext: SectionExtension, data: Any) = for {
       encExt <- Codec[SectionExtension].encode(ext)
@@ -183,7 +183,7 @@ object SectionCodec {
 
   private case class Case[A, B <: Section](
     codec: Codec[A],
-    toSection: (BitVector, Option[SectionExtension], A) => String \/ B,
+    toSection: (BitVector, Option[SectionExtension], A) => Err \/ B,
     fromSection: B => (BitVector, Option[SectionExtension], A))
 
   sealed trait UnknownSection extends Section
