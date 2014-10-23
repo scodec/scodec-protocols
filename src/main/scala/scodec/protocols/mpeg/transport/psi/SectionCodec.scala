@@ -20,7 +20,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
 
   def supporting[A <: Section](implicit c: SectionFragmentCodec[A]): SectionCodec =
     new SectionCodec(cases + (c.tableId -> Case[Any, Section](
-      c.subCodec.asInstanceOf[Codec[Any]],
+      hdr => c.subCodec(hdr).asInstanceOf[Codec[Any]],
       (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
       section => c.fromSection(section.asInstanceOf[A])
     )))
@@ -28,18 +28,19 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
   def encode(section: Section) = for {
     c <- cases.get(section.tableId) \/> Err(s"unsupported table id ${section.tableId}")
     (privateBits, extension, data) = c.fromSection(section)
+    preHeader = SectionHeader(section.tableId, extension.isDefined, privateBits, 0)
     encData <- extension match {
-      case None => c.codec.encode(data)
+      case None => c.codec(preHeader).encode(data)
       case Some(ext) =>
         for {
           encExt <- Codec[SectionExtension].encode(ext)
-          encData <- c.codec.encode(data)
+          encData <- c.codec(preHeader).encode(data)
         } yield encExt ++ encData
     }
     includeCrc = extension.isDefined
     size = (encData.size / 8).toInt + (if (includeCrc) 4 else 0)
-    header = SectionHeader(section.tableId, extension.isDefined, privateBits, size)
-    encHeader <- Codec[SectionHeader].encode(header)
+    postHeader = preHeader.copy(length = size)
+    encHeader <- Codec[SectionHeader].encode(postHeader)
     withoutCrc = encHeader ++ encData
   } yield if (includeCrc) withoutCrc ++ crc32mpeg(withoutCrc) else withoutCrc
 
@@ -58,20 +59,20 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
 
     def generateCrc(ext: SectionExtension, data: Any) = for {
       encExt <- Codec[SectionExtension].encode(ext)
-      encData <- c.codec.encode(data)
+      encData <- c.codec(header).encode(data)
       encHeader <- Codec[SectionHeader].encode(header)
     } yield crc32mpeg(encHeader ++ encExt ++ encData)
 
     def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
       ext <- DecodingContext(Codec[SectionExtension].decode)
-      data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec).decode)
+      data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec(header)).decode)
       actualCrc <- DecodingContext(int32.decode)
       expectedCrc <- DecodingContext.liftE(generateCrc(ext, data))
       _ <- DecodingContext.liftE(ensureCrcMatches(actualCrc, expectedCrc.toInt()))
     } yield Some(ext) -> data
 
     def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {
-      data <- DecodingContext(fixedSizeBytes(header.length, c.codec).decode)
+      data <- DecodingContext(fixedSizeBytes(header.length, c.codec(header)).decode)
     } yield None -> data
 
     for {
@@ -182,7 +183,7 @@ object SectionCodec {
     supporting[ConditionalAccessSection]
 
   private case class Case[A, B <: Section](
-    codec: Codec[A],
+    codec: SectionHeader => Codec[A],
     toSection: (BitVector, Option[SectionExtension], A) => Err \/ B,
     fromSection: B => (BitVector, Option[SectionExtension], A))
 
@@ -191,7 +192,7 @@ object SectionCodec {
   case class UnknownExtendedSection(tableId: Int, privateBits: BitVector, extension: SectionExtension, data: ByteVector) extends UnknownSection with ExtendedSection
 
   private def unknownSectionCase(tableId: Int): Case[BitVector, UnknownSection] = Case(
-    bits,
+    hdr => bits,
     (privateBits, ext, bits) => right(ext match {
       case Some(e) => UnknownExtendedSection(tableId, privateBits, e, bits.bytes)
       case None =>  UnknownNonExtendedSection(tableId, privateBits, bits.bytes)
