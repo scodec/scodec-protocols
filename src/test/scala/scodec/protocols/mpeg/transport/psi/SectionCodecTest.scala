@@ -56,7 +56,7 @@ class SectionCodecTest extends ProtocolsSpec {
         case class SmallSection(x: Int) extends Section { def tableId = 0 }
         val sections = Vector(SmallSection(0), SmallSection(1))
 
-        implicit val sfc = SectionFragmentCodec.nonExtended[SmallSection, Int](0, (p, i) => SmallSection(i), ss => (bin"010", ss.x))(constant(bin"0") ~> uint(7))
+        implicit val sfc = SectionFragmentCodec.nonExtended[SmallSection, Int](0, h => (constant(bin"0") ~> uint(7)), (p, i) => SmallSection(i), ss => (bin"010", ss.x))
         val sc = SectionCodec.supporting[SmallSection]
 
         val encodedSections = sections map sc.encodeValid

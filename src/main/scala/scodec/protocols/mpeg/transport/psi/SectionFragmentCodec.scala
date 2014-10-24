@@ -10,7 +10,7 @@ import scodec.{ Codec, Err }
 trait SectionFragmentCodec[A] {
   type Repr
   def tableId: Int
-  def subCodec: Codec[Repr]
+  def subCodec(header: SectionHeader): Codec[Repr]
   def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr): Err \/ A
   def fromSection(section: A): (BitVector, Option[SectionExtension], Repr)
 }
@@ -28,7 +28,7 @@ object SectionFragmentCodec {
     new SectionFragmentCodec[A] {
       type Repr = R
       def tableId = tid
-      def subCodec = Codec[Repr]
+      def subCodec(header: SectionHeader) = Codec[Repr]
       def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
         extension.map { ext => build(privateBits, ext, data) } \/> Err("extended section missing expected section extension")
       def fromSection(section: A) =
@@ -36,14 +36,15 @@ object SectionFragmentCodec {
     }
   }
 
-  def nonExtended[A, R: Codec](tableId: Int, toSection: (BitVector, R) => A, fromSection: A => (BitVector, R)): SectionFragmentCodec[A] = {
+  def nonExtended[A, R](tableId: Int, toCodec: SectionHeader => Codec[R], toSection: (BitVector, R) => A, fromSection: A => (BitVector, R)): SectionFragmentCodec[A] = {
     val tid = tableId
+    val codec = toCodec
     val build = toSection
     val extract = fromSection
     new SectionFragmentCodec[A] {
       type Repr = R
       def tableId = tid
-      def subCodec = Codec[Repr]
+      def subCodec(header: SectionHeader) = codec(header)
       def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
         \/.right(build(privateBits, data))
       def fromSection(section: A) = {
