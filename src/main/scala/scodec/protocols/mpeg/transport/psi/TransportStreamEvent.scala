@@ -30,22 +30,23 @@ object TransportStreamEvent {
 
     val sectionsToTables: Process1[PidStamped[MpegError \/ Section], PidStamped[MpegError \/ (TransportStreamIndex \/ TableMessage)]] = {
 
+      type SectionsToTables = Process1[PidStamped[MpegError \/ Section], PidStamped[MpegError \/ TableMessage]]
       type P = Process1[PidStamped[MpegError \/ Section], PidStamped[MpegError \/ (TransportStreamIndex \/ TableMessage)]]
 
-      def newSectionsToTablesForPid: Process1[MpegError \/ Section, MpegError \/ (TransportStreamIndex \/ TableMessage)] =
-        joinErrors(group) |> joinErrors(tableBuilder.sectionsToTables) |> passErrors(TransportStreamIndex.build)
+      def newSectionsToTablesForPid: SectionsToTables =
+        PidStamped.preservePidStamps(joinErrors(group) |> joinErrors(tableBuilder.sectionsToTables))
 
-      def go(state: Map[Pid, P]): P = {
-        def cleanup = state.values.foldLeft(Process.halt: P) { (acc, p) => acc ++ p.disconnect(Cause.Kill) }
+      def go(state: Map[Pid, SectionsToTables]): SectionsToTables = {
+        def cleanup = state.values.foldLeft(Process.halt: SectionsToTables) { (acc, p) => acc ++ p.disconnect(Cause.Kill) }
         Process.receive1Or(cleanup) {
           case event =>
-            val p = state.getOrElse(event.pid, PidStamped.preservePidStamps(newSectionsToTablesForPid))
+            val p = state.getOrElse(event.pid, newSectionsToTablesForPid)
             val (toEmit, next) = p.feed1(event).unemit
             Process.emitAll(toEmit) ++ go(state + (event.pid -> next))
         }
       }
 
-      go(Map.empty)
+      go(Map.empty) |> PidStamped.preservePidStamps(passErrors(TransportStreamIndex.build))
     }
 
     sectionCodec.depacketize.pipe(sectionsToTables).map {

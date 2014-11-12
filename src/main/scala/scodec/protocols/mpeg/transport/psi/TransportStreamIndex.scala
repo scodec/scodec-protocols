@@ -58,9 +58,7 @@ object TransportStreamIndex {
     }
 
     def withPmt(pmt: ProgramMapTable): TransportStreamIndex = {
-      val add = pat.cata(_.programByPid.contains(pmt.programNumber), true)
-      if (add) copy(pmts = pmts + (pmt.programNumber -> pmt))
-      else this
+      copy(pmts = pmts + (pmt.programNumber -> pmt))
     }
 
     def withCat(cat: ConditionalAccessTable): TransportStreamIndex =
