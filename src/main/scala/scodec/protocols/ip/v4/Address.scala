@@ -11,6 +11,8 @@ import scodec.codecs
 
 case class Address(value: Int) {
   override def toString = ByteVector.fromInt(value).toIterable.map { b => 0xff & b.toInt }.mkString(".")
+
+  def toV6: v6.Address = v6.Address(ByteVector.low(10) ++ ByteVector.high(2) ++ ByteVector.fromInt(value))
 }
 
 object Address {
