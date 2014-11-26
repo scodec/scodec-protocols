@@ -48,9 +48,9 @@ resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repos
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "scodec-stream" % "0.5.0-SNAPSHOT",
-  "org.scalatest" %% "scalatest" % "2.1.3" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.11.3" % "test"
+  "org.typelevel" %% "scodec-stream" % "0.5.0",
+  "org.scalatest" %% "scalatest" % "2.2.2" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.12.0" % "test"
 )
 
 osgiSettings
