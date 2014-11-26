@@ -2,10 +2,10 @@ package scodec.protocols
 package ip
 package v4
 
-import scalaz.std.anyVal.unitInstance
-import scodec.bits.BitVector
+import scodec.bits._
 import scodec.Codec
 import scodec.codecs._
+import scodec.codecs.literals._
 import scodec.stream._
 import shapeless._
 
@@ -23,7 +23,7 @@ object SimpleHeader {
 
   implicit val codec: Codec[SimpleHeader] = {
     val componentCodec =
-      ignore(8) :~>:
+      ("version" | bin"0100") :~>:
       ("ihl" | uint8) ::
       ("total_length" | uint16) ::
       ("id" | uint16) ::

@@ -41,6 +41,7 @@ object Address {
   implicit val codec: Codec[Address] = codecs.bytes(16).as[Address]
 
   def fromString(str: String): String \/ Address = {
+    // FIXME: this implementation erroneously supports hostnames and can be slow as a result
     val result = Try {
       java.net.InetAddress.getByName(str) match {
         case v6: java.net.Inet6Address => Address(ByteVector(v6.getAddress))
