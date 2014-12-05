@@ -5,19 +5,23 @@ import scodec.bits.ByteOrdering
 import scodec.Codec
 import scodec.codecs._
 
+import org.joda.time.DateTime
+
 case class RecordHeader(
   timestampSeconds: Long,
   timestampMicros: Long,
   includedLength: Long,
   originalLength: Long) {
-  def timestamp: Double = RecordHeader.timestamp(timestampSeconds, timestampMicros)
+  def timestamp: DateTime = RecordHeader.timestamp(timestampSeconds, timestampMicros)
   def fullPayload: Boolean = includedLength == originalLength
 }
 
 object RecordHeader {
 
-  private val oneSecondInMicros = 1.second.toMicros.toDouble
-  private def timestamp(seconds: Long, micros: Long): Double = seconds + (micros / oneSecondInMicros)
+  private def timestamp(seconds: Long, micros: Long): DateTime = new DateTime((seconds.seconds + micros.micros).toMillis)
+
+  def apply(time: DateTime, includedLength: Long, originalLength: Long): RecordHeader =
+    RecordHeader(time.getMillis / 1000, time.getMillisOfSecond * 1000, includedLength, originalLength)
 
   implicit def codec(implicit ordering: ByteOrdering): Codec[RecordHeader] = "record-header" | {
     ("ts_sec"   | guint32 ) ::

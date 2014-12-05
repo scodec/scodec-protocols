@@ -1,10 +1,12 @@
 package scodec.protocols
 
+import scala.concurrent.duration._
 import scalaz.{ Lens, Monoid }
 import scalaz.std.AllInstances._
 import scalaz.concurrent.Task
 import scalaz.stream._
 import scodec.bits._
+import org.joda.time.DateTime
 
 class TimeStampedTest extends ProtocolsSpec {
 
@@ -12,20 +14,23 @@ class TimeStampedTest extends ProtocolsSpec {
 
     "support calculation of rates" which {
 
+      implicit def intToDateTime(x: Int): DateTime = new DateTime(x * 1000)
+      implicit def doubleToDateTime(x: Double): DateTime = new DateTime((x * 1000).toLong)
+
       "emits accumulated feature values for each specified time period and emits a final value" in {
         val data = Process.emitAll(Seq(
           TimeStamped(0, 1),
           TimeStamped(0.5, 2),
           TimeStamped(1, 1),
           TimeStamped(2.3, 2))).toSource
-        data.pipe(TimeStamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
+        data.pipe(TimeStamped.rate(1.second)(x => x)).runLog.run shouldBe Vector(
           TimeStamped(0, 3), TimeStamped(1, 1), TimeStamped(2, 2))
-        data.pipe(TimeStamped.rate(2.0)(x => x)).runLog.run shouldBe Vector(TimeStamped(0, 4), TimeStamped(2, 2))
+        data.pipe(TimeStamped.rate(2.seconds)(x => x)).runLog.run shouldBe Vector(TimeStamped(0, 4), TimeStamped(2, 2))
       }
 
       "emits 0s when values are skipped over" in {
         val data = Process.emitAll(Seq(TimeStamped(0, 1), TimeStamped(3.3, 2))).toSource
-        data.pipe(TimeStamped.rate(1.0)(x => x)).runLog.run shouldBe Vector(
+        data.pipe(TimeStamped.rate(1.second)(x => x)).runLog.run shouldBe Vector(
           TimeStamped(0, 1), TimeStamped(1, 0), TimeStamped(2, 0), TimeStamped(3, 2))
       }
 
@@ -38,7 +43,7 @@ class TimeStampedTest extends ProtocolsSpec {
           TimeStamped(2.6, hex"deadbeef")
         )).toSource
 
-        val bitsPerSecond = data.pipe(TimeStamped.rate(1.0)(x => x.size * 8))
+        val bitsPerSecond = data.pipe(TimeStamped.rate(1.second)(x => x.size * 8))
 
         case class Average(samples: Int, value: Double)
         implicit val avgMonoid: Monoid[Average] = Monoid.instance((x, y) => {

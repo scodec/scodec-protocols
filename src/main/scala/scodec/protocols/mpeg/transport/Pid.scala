@@ -17,10 +17,12 @@ object Pid {
   val MinValue = 0
   val MaxValue = 8191
 
-  implicit val codec: Codec[Pid] = uint(13).xmap(Pid.apply, _.value)
+  implicit val codec: Codec[Pid] = uint(13).as[Pid]
 }
 
-case class PidStamped[+A](pid: Pid, value: A)
+case class PidStamped[+A](pid: Pid, value: A) {
+  def map[B](f: A => B): PidStamped[B] = copy(value = f(value))
+}
 
 object PidStamped {
 

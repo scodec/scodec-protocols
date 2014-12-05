@@ -27,7 +27,7 @@ object CaptureFile {
       linkDecoders(global.network) match {
         case None => left(Err(s"unsupported link type ${global.network}"))
         case Some(decoder) => right {
-          hdr => decoder map { value => TimeStamped(hdr.timestamp + global.thiszone, value) }
+          hdr => decoder map { value => TimeStamped(hdr.timestamp plus (global.thiszone * 1000), value) }
         }
       }
     }

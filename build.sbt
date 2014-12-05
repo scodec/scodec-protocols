@@ -49,6 +49,7 @@ resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
   "org.typelevel" %% "scodec-stream" % "0.5.0",
+  "joda-time" % "joda-time" % "2.6",
   "org.scalatest" %% "scalatest" % "2.2.2" % "test",
   "org.scalacheck" %% "scalacheck" % "1.12.0" % "test"
 )
