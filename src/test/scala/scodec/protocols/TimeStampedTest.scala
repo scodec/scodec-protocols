@@ -102,5 +102,29 @@ class TimeStampedTest extends ProtocolsSpec {
         reordered20ms.toList.size should be >= 10
       }
     }
+
+    "interpolating time ticks in a timestamped stream" in {
+      val events = Process.range(1, 4) map { _ * 1000 } map { x => TimeStamped(new DateTime(x), x) }
+      val withTicksDefault = events.pipe(TimeStamped.interpolateTimeTicks()).toList
+      withTicksDefault shouldBe List(
+        TimeStamped(new DateTime(1000), right(1000)),
+        TimeStamped(new DateTime(2000), left(())),
+        TimeStamped(new DateTime(2000), right(2000)),
+        TimeStamped(new DateTime(3000), left(())),
+        TimeStamped(new DateTime(3000), right(3000))
+      )
+      val withTicks300ms = events.pipe(TimeStamped.interpolateTimeTicks(300.millis)).toList
+      withTicks300ms shouldBe List(
+        TimeStamped(new DateTime(1000), right(1000)),
+        TimeStamped(new DateTime(1300), left(())),
+        TimeStamped(new DateTime(1600), left(())),
+        TimeStamped(new DateTime(1900), left(())),
+        TimeStamped(new DateTime(2000), right(2000)),
+        TimeStamped(new DateTime(2200), left(())),
+        TimeStamped(new DateTime(2500), left(())),
+        TimeStamped(new DateTime(2800), left(())),
+        TimeStamped(new DateTime(3000), right(3000))
+      )
+    }
   }
 }

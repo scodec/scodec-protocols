@@ -3,9 +3,11 @@ package scodec.protocols
 import scala.concurrent.duration._
 
 import scalaz.{ \/, Lens, LensFamily, Monoid }
+import \/.{ left, right }
 import scalaz.concurrent.{ Strategy, Task }
 import scalaz.syntax.monoid._
 import scalaz.stream._
+import Process._
 
 import java.util.concurrent.ScheduledExecutorService
 
@@ -69,13 +71,13 @@ object TimeStamped {
     val jodaOver = new JDuration(over.toMillis)
     def go(start: DateTime, acc: B): Process1[TimeStamped[A], TimeStamped[B]] = {
       val end = start plus jodaOver
-      Process.receive1Or[TimeStamped[A], TimeStamped[B]](Process.emit(TimeStamped(start, acc))) {
+      receive1Or[TimeStamped[A], TimeStamped[B]](emit(TimeStamped(start, acc))) {
         case t @ TimeStamped(time, a) =>
           if (time isBefore end) go(start, acc |+| f(a))
-          else Process.emit(TimeStamped(start, acc)) ++ process1.feed1(t)(go(end, Monoid[B].zero))
+          else emit(TimeStamped(start, acc)) ++ process1.feed1(t)(go(end, Monoid[B].zero))
       }
     }
-    Process.await1[TimeStamped[A]].flatMap { first =>
+    await1[TimeStamped[A]].flatMap { first =>
       go(first.time, f(first.value))
     }
   }
@@ -99,7 +101,6 @@ object TimeStamped {
    * but should be "played back" at real time speeds.
    */
   def throttle[A](source: Process[Task, TimeStamped[A]], throttlingFactor: Double)(implicit S: Strategy, scheduler: ScheduledExecutorService): Process[Task, TimeStamped[A]] = {
-    import Process._
     import wye._
 
     val tickDuration = 100.milliseconds
@@ -124,7 +125,7 @@ object TimeStamped {
       receiveL { tsa => emit(tsa) ++ read(tsa.time) }
     }
 
-    (source wye Process.awakeEvery(tickDuration))(doThrottle)
+    (source wye awakeEvery(tickDuration))(doThrottle)
   }
 
   /**
@@ -141,7 +142,6 @@ object TimeStamped {
    * to the writer side of the writer.
    */
   def increasingW[A]: Writer1[TimeStamped[A], TimeStamped[A], TimeStamped[A]] = {
-    import Process._
     def notBefore(last: DateTime): Writer1[TimeStamped[A], TimeStamped[A], TimeStamped[A]] = {
       await1[TimeStamped[A]] flatMap { t =>
         val now = t.time
@@ -188,12 +188,11 @@ object TimeStamped {
    *
    * Caution: this transducer should only be used on streams that are mostly ordered.
    * In the worst case, if the source is in reverse order, all values in the source
-   * will be accumulated in to the buffer until the source halts, and then the
+   * will be accumulated in to the buffer until the source halts, and then the{
    * values will be emitted in order.
    */
   def attemptReorderLocally[A](over: FiniteDuration): Process1[TimeStamped[A], TimeStamped[A]] = {
     import scala.collection.immutable.SortedSet
-    import Process._
     val overMillis = over.toMillis
     def go(buffered: SortedSet[TimeStamped[A]]): Process1[TimeStamped[A], TimeStamped[A]] = {
       receive1Or[TimeStamped[A], TimeStamped[A]](emitAll(buffered.toSeq)) { t =>
@@ -203,5 +202,35 @@ object TimeStamped {
       }
     }
     go(SortedSet.empty)
+  }
+
+  /** Stream of time ticks spaced by `tickPeriod`. */
+  def timeTicks(tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: ScheduledExecutorService): Process[Task, TimeStamped[Unit]] =
+    awakeEvery(tickPeriod) map { _ => nowTick }
+
+  /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source process. */
+  def withTimeTicks[A](source: Process[Task, A], tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: ScheduledExecutorService): Process[Task, TimeStamped[Unit \/ A]] = {
+    source.map { a => now(right(a)) } merge timeTicks(tickPeriod).map { _ map left }
+  }
+
+  /**
+   * Stream transducer that converts a stream of timestamped values with monotonically increasing timestamps in
+   * to a stream of timestamped ticks or values, where a tick is emitted every `tickPeriod`.
+   * Ticks are emitted between values from the source stream.
+   */
+  def interpolateTimeTicks[A](tickPeriod: FiniteDuration = 1.second): Process1[TimeStamped[A], TimeStamped[Unit \/ A]] = {
+    val tickPeriodMillis = tickPeriod.toMillis
+    def go(nextTick: DateTime): Process1[TimeStamped[A], TimeStamped[Unit \/ A]] = {
+      await1[TimeStamped[A]] flatMap { t =>
+        if (t.time.getMillis < nextTick.getMillis) emit(t map right) ++ go(nextTick)
+        else {
+          val tickCount = ((t.time.getMillis - nextTick.getMillis) / tickPeriodMillis + 1).toInt
+          val tickTimes = (0 to tickCount) map { x => nextTick plus (x * tickPeriodMillis) }
+          val ticks = tickTimes map { t => TimeStamped(t, left(())) }
+          emitAll(ticks.init) ++ emit(t map right) ++ go(ticks.last.time)
+        }
+      }
+    }
+    await1[TimeStamped[A]] flatMap { t => emit(t map right) ++ go(t.time plus tickPeriodMillis) }
   }
 }
