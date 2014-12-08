@@ -46,6 +46,13 @@ object TimeStamped {
     process1ext.lensf(Lenses.ValueMap[A, B])(p)
 
   /**
+   * Combinator that converts a `Process1[A, B]` in to a `Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]]` such that
+   * timestamps are preserved on elements that flow through the process.
+   */
+  def preserveTimeTicks[A, B](p: Process1[A, B]): Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]] =
+    preserveTimeStamps(p.liftR[Unit])
+
+  /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
    * `TimeStamped[B]` where `B` is an accumulated feature of `A` over a second.
    *
