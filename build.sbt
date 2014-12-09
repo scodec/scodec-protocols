@@ -9,7 +9,7 @@ name := "scodec-protocols"
 
 scalaVersion := "2.10.4"
 
-crossScalaVersions := Seq("2.10.4", "2.11.0")
+crossScalaVersions := Seq("2.10.4", "2.11.4")
 
 scalacOptions ++= Seq(
   "-feature",
@@ -48,11 +48,11 @@ resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repos
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "scodec-stream" % "0.5.0",
+  "org.typelevel" %% "scodec-stream" % "0.6.0",
   "joda-time" % "joda-time" % "2.6",
+  "org.joda" % "joda-convert" % "1.7",
   "org.scalatest" %% "scalatest" % "2.2.2" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.12.0" % "test",
-  "org.joda" % "joda-convert" % "1.7"
+  "org.scalacheck" %% "scalacheck" % "1.12.0" % "test"
 )
 
 osgiSettings
