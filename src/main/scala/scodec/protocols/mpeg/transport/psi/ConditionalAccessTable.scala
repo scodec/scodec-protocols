@@ -5,7 +5,7 @@ package psi
 import scalaz.{ \/, NonEmptyList, Tag, Tags }
 import scalaz.\/.{ left, right }
 import scalaz.std.AllInstances._
-import scalaz.syntax.traverse._
+import scalaz.syntax.foldable._
 import scalaz.syntax.std.option._
 import scodec.Codec
 import scodec.bits._
