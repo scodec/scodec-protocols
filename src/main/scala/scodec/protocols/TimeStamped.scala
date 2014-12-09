@@ -2,7 +2,7 @@ package scodec.protocols
 
 import scala.concurrent.duration._
 
-import scalaz.{ \/, Lens, LensFamily, Monoid }
+import scalaz.{ \/, \/-, -\/, Lens, LensFamily, Monoid }
 import \/.{ left, right }
 import scalaz.concurrent.{ Strategy, Task }
 import scalaz.syntax.monoid._
@@ -25,6 +25,9 @@ object TimeStamped {
 
   def now[A](a: A): TimeStamped[A] = TimeStamped(DateTime.now(DateTimeZone.UTC), a)
   def nowTick: TimeStamped[Unit] = now(())
+
+  def tickE(time: DateTime): TimeStamped[Unit \/ Nothing] = TimeStamped(time, left(()))
+  def valueE[A](time: DateTime, value: A): TimeStamped[Unit \/ A] = TimeStamped(time, right(value))
 
   object Lenses {
     def TimeStamp[A]: Lens[TimeStamped[A], DateTime] = Lens.lensu((t, s) => t.copy(time = s), _.time)
@@ -49,8 +52,28 @@ object TimeStamped {
    * Combinator that converts a `Process1[A, B]` in to a `Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]]` such that
    * timestamps are preserved on elements that flow through the process.
    */
-  def preserveTimeTicks[A, B](p: Process1[A, B]): Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]] =
+  def preserveTimeStampsAndTicks[A, B](p: Process1[A, B]): Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]] =
     preserveTimeStamps(p.liftR[Unit])
+
+  /**
+   * Combinator that converts a `Process1[TimeStamped[A], TimeStamped[B]]` in to a `Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]]` such that
+   * timestamps are preserved on elements that flow through the process.
+   */
+  def preserveTimeTicks[A, B](p: Process1[TimeStamped[A], TimeStamped[B]]): Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]] = {
+    def go(cur: Process1[TimeStamped[A], TimeStamped[B]]): Process1[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]] = {
+      receive1Or[TimeStamped[Unit \/ A], TimeStamped[Unit \/ B]](cur.disconnect(Cause.Kill).map(_ map right)) {
+        case t @ TimeStamped(ts, -\/(())) => emit(t.asInstanceOf[TimeStamped[Unit \/ B]]) ++ go(cur)
+        case t @ TimeStamped(ts, \/-(a)) =>
+          val (toEmit, next) = cur.feed1(TimeStamped(ts, a)).unemit
+          val out: Process0[TimeStamped[Unit \/ B]] = emitAll(toEmit map { _ map right })
+          next match {
+            case h @ Halt(_) => out ++ h
+            case other => out ++ go(other)
+          }
+      }
+    }
+    go(p)
+  }
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
@@ -216,9 +239,12 @@ object TimeStamped {
     awakeEvery(tickPeriod) map { _ => nowTick }
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source process. */
-  def withTimeTicks[A](source: Process[Task, A], tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: ScheduledExecutorService): Process[Task, TimeStamped[Unit \/ A]] = {
-    source.map { a => now(right(a)) } merge timeTicks(tickPeriod).map { _ map left }
-  }
+  def withTimeTicks[A](source: Process[Task, A], tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: ScheduledExecutorService): Process[Task, TimeStamped[Unit \/ A]] =
+    mergeWithTimeTicks(source map TimeStamped.now, tickPeriod)
+
+  /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source process. */
+  def mergeWithTimeTicks[A](source: Process[Task, TimeStamped[A]], tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: ScheduledExecutorService): Process[Task, TimeStamped[Unit \/ A]] =
+    source.map { _ map right } merge timeTicks(tickPeriod).map { _ map left }
 
   /**
    * Stream transducer that converts a stream of timestamped values with monotonically increasing timestamps in
