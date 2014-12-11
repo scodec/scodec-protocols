@@ -15,8 +15,8 @@ case class SimpleHeader(
   payloadLength: Int,
   protocol: Int,
   hopLimit: Int,
-  sourceAddress: Address,
-  destinationAddress: Address
+  sourceIp: Address,
+  destinationIp: Address
 )
 
 object SimpleHeader {
