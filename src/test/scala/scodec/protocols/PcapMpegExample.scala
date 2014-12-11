@@ -21,7 +21,7 @@ object PcapMpegExample extends App {
       for {
         ethernetHeader <- pcap.EthernetFrameHeader.sdecoder
         ipHeader <- ip.v4.SimpleHeader.sdecoder(ethernetHeader)
-        udpDatagram <- ip.udp.DatagramHeader.sdecoder(ipHeader)
+        udpDatagram <- ip.udp.DatagramHeader.sdecoder(ipHeader.protocol)
         packets <- decode.tryMany[mpeg.transport.Packet] map { p =>
           CapturedPacket(
             IpAndPort(ipHeader.sourceIp, udpDatagram.sourcePort),
