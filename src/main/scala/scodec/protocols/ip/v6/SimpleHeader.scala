@@ -6,6 +6,7 @@ import scodec._
 import scodec.bits._
 import scodec.codecs._
 import scodec.codecs.literals._
+import scodec.stream._
 
 /** Simple version of an IPv6 header. Does not support extension headers. */
 case class SimpleHeader(
@@ -29,4 +30,8 @@ object SimpleHeader {
     ("source_address"      | Codec[Address]) ::
     ("destination_address" | Codec[Address])
   }.as[SimpleHeader]
+
+  def sdecoder(ethernetHeader: pcap.EthernetFrameHeader): StreamDecoder[SimpleHeader] =
+    if (ethernetHeader.ethertype == Some(pcap.EtherType.IPv6)) decode.once[SimpleHeader]
+    else decode.halt
 }

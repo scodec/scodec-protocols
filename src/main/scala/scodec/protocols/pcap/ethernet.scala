@@ -28,3 +28,9 @@ object EthernetFrameHeader {
 
   val sdecoder: StreamDecoder[EthernetFrameHeader] = decode.once[pcap.EthernetFrameHeader]
 }
+
+object EtherType {
+  val IPv4 = 0x8000
+  val IPv6 = 0x86DD
+}
+
