@@ -18,7 +18,7 @@ object DatagramHeader {
     ("checksum"         | uint16)
   }.as[DatagramHeader]
 
-  def sdecoder(ipHeader: ip.v4.SimpleHeader): StreamDecoder[DatagramHeader] =
-    if (ipHeader.protocol == ip.Protocols.Udp) decode.once[DatagramHeader]
+  def sdecoder(protocol: Int): StreamDecoder[DatagramHeader] =
+    if (protocol == ip.Protocols.Udp) decode.once[DatagramHeader]
     else decode.halt
 }
