@@ -30,7 +30,7 @@ object EthernetFrameHeader {
 }
 
 object EtherType {
-  val IPv4 = 0x8000
+  val IPv4 = 0x0800
   val IPv6 = 0x86DD
 }
 
