@@ -1,10 +1,13 @@
 package scodec.protocols
 
+import language.higherKinds
+
 import scala.concurrent.duration._
 
-import scalaz.{ \/, \/-, -\/, Lens, LensFamily, Monoid }
+import scalaz.{ \/, \/-, -\/, Applicative, Lens, LensFamily, Monoid, Traverse, Monad }
 import \/.{ left, right }
 import scalaz.concurrent.{ Strategy, Task }
+import scalaz.syntax.applicative._
 import scalaz.syntax.monoid._
 import scalaz.stream._
 import Process._
@@ -35,6 +38,16 @@ object TimeStamped {
     def compare(x: TimeStamped[A], y: TimeStamped[A]) = x.time compareTo y.time
   }
 
+  implicit def traverseInstance: Traverse[TimeStamped] = new Traverse[TimeStamped] {
+    def traverseImpl[G[_], A, B](ta: TimeStamped[A])(f: A => G[B])(implicit G: Applicative[G]): G[TimeStamped[B]] =
+      f(ta.value) map { b => TimeStamped(ta.time, b) }
+  }
+
+  implicit def monadInstance: Monad[TimeStamped] = new Monad[TimeStamped] {
+    def point[A](a: => A) = TimeStamped.now(a)
+    def bind[A, B](fa: TimeStamped[A])(f: A => TimeStamped[B]): TimeStamped[B] = f(fa.value)
+  }
+
   /**
    * Combinator that converts a `Process1[A, B]` in to a `Process1[TimeStamped[A], TimeStamped[B]]` such that
    * timestamps are preserved on elements that flow through the process.
@@ -56,6 +69,20 @@ object TimeStamped {
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
+   * `TimeStamped[B \/ A]` where `B` is an accumulated feature of `A` over a second.
+   *
+   * Every incoming `A` is echoed to the output.
+   *
+   * For example, the emitted bits per second of a `Process[Task, ByteVector]` can be calculated
+   * using `perSecondRate(_.size * 8)`, which yields a stream of the emitted bits per second.
+   *
+   * @param f function which extracts a feature of `A`
+   */
+  def withPerSecondRate[A, B: Monoid](f: A => B): Process1[TimeStamped[A], TimeStamped[B \/ A]] =
+    withRate(1.second)(f)
+
+  /**
+   * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
    * `TimeStamped[B]` where `B` is an accumulated feature of `A` over a specified time period.
    *
    * For example, the emitted bits per second of a `Process[Task, ByteVector]` can be calculated
@@ -64,18 +91,35 @@ object TimeStamped {
    * @param over time period over which to calculate
    * @param f function which extracts a feature of `A`
    */
-  def rate[A, B: Monoid](over: FiniteDuration)(f: A => B): Process1[TimeStamped[A], TimeStamped[B]] = {
+  def rate[A, B: Monoid](over: FiniteDuration)(f: A => B): Process1[TimeStamped[A], TimeStamped[B]] =
+    withRate(over)(f) pipe process1ext.drainFR
+
+  /**
+   * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
+   * `TimeStamped[B \/ A]` where `B` is an accumulated feature of `A` over a specified time period.
+   *
+   * Every incoming `A` is echoed to the output.
+   *
+   * For example, the emitted bits per second of a `Process[Task, ByteVector]` can be calculated
+   * using `rate(1.0)(_.size * 8)`, which yields a stream of the emitted bits per second.
+   *
+   * @param over time period over which to calculate
+   * @param f function which extracts a feature of `A`
+   */
+  def withRate[A, B: Monoid](over: FiniteDuration)(f: A => B): Process1[TimeStamped[A], TimeStamped[B \/ A]] = {
     val jodaOver = new JDuration(over.toMillis)
-    def go(start: DateTime, acc: B): Process1[TimeStamped[A], TimeStamped[B]] = {
+    def go(start: DateTime, acc: B): Process1[TimeStamped[A], TimeStamped[B \/ A]] = {
       val end = start plus jodaOver
-      receive1Or[TimeStamped[A], TimeStamped[B]](emit(TimeStamped(start, acc))) {
+      receive1Or[TimeStamped[A], TimeStamped[B \/ A]](emit(TimeStamped(start, left(acc)))) {
         case t @ TimeStamped(time, a) =>
-          if (time isBefore end) go(start, acc |+| f(a))
-          else emit(TimeStamped(start, acc)) ++ process1.feed1(t)(go(end, Monoid[B].zero))
+          emit(t map right) ++ {
+            if (time isBefore end) go(start, acc |+| f(a))
+            else emit(TimeStamped(start, left(acc))) ++ process1.feed1(t)(go(end, Monoid[B].zero))
+          }
       }
     }
     await1[TimeStamped[A]].flatMap { first =>
-      go(first.time, f(first.value))
+      emit(first map right) ++ go(first.time, f(first.value))
     }
   }
 

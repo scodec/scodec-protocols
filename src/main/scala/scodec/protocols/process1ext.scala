@@ -1,6 +1,10 @@
 package scodec.protocols
 
-import scalaz.{ \/, Lens, LensFamily }
+import language.higherKinds
+
+import scalaz.{ \/, -\/, \/-, Bind, Lens, LensFamily, Traverse }
+import \/.{ left, right }
+import scalaz.syntax.traverse._
 import scalaz.stream.{ Cause, Process, Process0, Process1, process1 }
 import Process._
 import process1.Await1
@@ -58,7 +62,6 @@ object process1ext {
   private def liftSecond[A, B, C](f: B => Option[C])(p: Process1[A, B]): Process1[(C, A), (C, B)] =
     process1.lift[(C, A), (A, C)](_.swap) |> liftFirst(f)(p).map(_.swap)
 
-
   /**
    * Accepts values of type `X` and converts them to an `A` or `B`. If `A`, the `A`
    * is fed to `p`. If `B`, the `B` is emitted directly.
@@ -68,4 +71,42 @@ object process1ext {
 
   def mapRight[I, L, A, B](p: Process1[I, L \/ A])(f: A => B): Process1[I, L \/ B] =
     p.map { _ map f }
+
+  /** Stream transducer that drops left values from a stream of `F[A \/ B]` values. */
+  def drainFL[F[_]: Traverse, A, B]: Process1[F[A \/ B], F[B]] =
+    process1.id[F[A \/ B]] flatMap { fab =>
+      fab.traverse(_.fold(_ => halt, emit))(Process.ProcessMonadPlus[Nothing])
+    }
+
+  /** Stream transducer that drops right values from a stream of `F[A \/ B]` values. */
+  def drainFR[F[_]: Traverse, A, B]: Process1[F[A \/ B], F[A]] =
+    process1.lift((fab: F[A \/ B]) => fab.map { _.swap }) pipe drainFL
+
+  /** Stream transducer that lifts a `Process1[F[A], F[B]]` in to a `Process1[F[A \/ C], F[B \/ C]]`. */
+  def liftFL[F[_], A, B, C](p: Process1[F[A], F[B]])(implicit FT: Traverse[F], FB: Bind[F]): Process1[F[A \/ C], F[B \/ C]] = {
+    def go(curr: Process1[F[A], F[B]]): Process1[F[A \/ C], F[B \/ C]] = {
+      receive1Or[F[A \/ C], F[B \/ C]](curr.disconnect(Cause.Kill).map(fb => FT.map(fb)(left[B, C]))) { fac =>
+        type Q[X] = Process1[F[A \/ C], X]
+        fac.traverseM[Q, B \/ C] {
+          case -\/(a) =>
+            val fa = FT.map(fac)(_ => a)
+            val (toEmit, next) = curr.feed1(fa).unemit
+            val out = emitAll(toEmit map { fb => FT.map(fb)(left[B, C]) })
+            next match {
+              case h @ Halt(_) => out ++ h
+              case other => out ++ go(next)
+            }
+
+          case \/-(c) =>
+            val out = emit(FT.map(fac)(_ => right[B, C](c)))
+            out ++ go(curr)
+        }(Process.ProcessMonadPlus[Env[F[A \/ C],Any]#Is], implicitly)
+      }
+    }
+    go(p)
+  }
+
+  /** Stream transducer that lifts a `Process1[F[A], F[B]]` in to a `Process1[F[C \/ A], F[C \/ B]]`. */
+  def liftFR[F[_], A, B, C](p: Process1[F[A], F[B]])(implicit FT: Traverse[F], FB: Bind[F]): Process1[F[C \/ A], F[C \/ B]] =
+    process1.lift((fca: F[C \/ A]) => FT.map(fca)(_.swap)) pipe liftFL(p) map { fbc => FT.map(fbc)(_.swap) }
 }
