@@ -27,14 +27,17 @@ class TimeStampedTest extends ProtocolsSpec {
           TimeStamped(1, 1),
           TimeStamped(2.3, 2))).liftIO
         data.pipe(TimeStamped.rate(1.second)(x => x)).runLog.run shouldBe Vector(
-          TimeStamped(0, 3), TimeStamped(1, 1), TimeStamped(2, 2))
-        data.pipe(TimeStamped.rate(2.seconds)(x => x)).runLog.run shouldBe Vector(TimeStamped(0, 4), TimeStamped(2, 2))
+          TimeStamped(1, 3), TimeStamped(2, 1), TimeStamped(3, 2))
+        data.pipe(TimeStamped.rate(2.seconds)(x => x)).runLog.run shouldBe Vector(TimeStamped(2, 4), TimeStamped(4, 2))
       }
 
       "emits 0s when values are skipped over" in {
         val data = Process.emitAll(Seq(TimeStamped(0, 1), TimeStamped(3.3, 2))).liftIO
         data.pipe(TimeStamped.rate(1.second)(x => x)).runLog.run shouldBe Vector(
-          TimeStamped(0, 1), TimeStamped(1, 0), TimeStamped(2, 0), TimeStamped(3, 2))
+          TimeStamped(1, 1), TimeStamped(2, 0), TimeStamped(3, 0), TimeStamped(4, 2))
+
+        data.pipe(TimeStamped.withRate(1.second)(x => x)).runLog.run shouldBe Vector(
+          TimeStamped(0, right(1)), TimeStamped(1, left(1)), TimeStamped(2, left(0)), TimeStamped(3, left(0)), TimeStamped(3.3, right(2)), TimeStamped(4, left(2)))
       }
 
       "supports calculation of an average bitrate" in {

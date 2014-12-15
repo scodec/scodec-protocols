@@ -110,12 +110,10 @@ object TimeStamped {
     val jodaOver = new JDuration(over.toMillis)
     def go(start: DateTime, acc: B): Process1[TimeStamped[A], TimeStamped[B \/ A]] = {
       val end = start plus jodaOver
-      receive1Or[TimeStamped[A], TimeStamped[B \/ A]](emit(TimeStamped(start, left(acc)))) {
+      receive1Or[TimeStamped[A], TimeStamped[B \/ A]](emit(TimeStamped(end, left(acc)))) {
         case t @ TimeStamped(time, a) =>
-          emit(t map right) ++ {
-            if (time isBefore end) go(start, acc |+| f(a))
-            else emit(TimeStamped(start, left(acc))) ++ process1.feed1(t)(go(end, Monoid[B].zero))
-          }
+          if (time isBefore end) emit(t map right) ++ go(start, acc |+| f(a))
+          else emit(TimeStamped(end, left(acc))) ++ process1.feed1(t)(go(end, Monoid[B].zero))
       }
     }
     await1[TimeStamped[A]].flatMap { first =>
