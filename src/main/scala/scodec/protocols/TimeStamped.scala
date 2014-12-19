@@ -242,4 +242,26 @@ object TimeStamped {
     }
     go(SortedSet.empty)
   }
+
+  /** `TimeStamped` version of [[scalaz.stream.process1.liftL]]. */
+  def liftL[A, B, C](p: Process1[TimeStamped[A], TimeStamped[B]]): Process1[TimeStamped[A \/ C], TimeStamped[B \/ C]] = {
+    def go(cur: Process1[TimeStamped[A], TimeStamped[B]]): Process1[TimeStamped[A \/ C], TimeStamped[B \/ C]] = {
+      receive1Or[TimeStamped[A \/ C], TimeStamped[B \/ C]](cur.disconnect(Cause.Kill).map { _ map left }) {
+        case t @ TimeStamped(time, \/-(c)) =>
+          emit(t.asInstanceOf[TimeStamped[B \/ C]]) ++ go(cur)
+        case TimeStamped(time, -\/(a)) =>
+          val (toEmit, next) = cur.feed1(TimeStamped(time, a)).unemit
+          val out = toEmit map { _ map left }
+          emitAll(out) ++ next match {
+            case h @ Halt(_) => h
+            case _ => go(next)
+          }
+      }
+    }
+    go(p)
+  }
+
+  /** `TimeStamped` version of [[scalaz.stream.process1.liftR]]. */
+  def liftR[A, B, C](p: Process1[TimeStamped[A], TimeStamped[B]]): Process1[TimeStamped[C \/ A], TimeStamped[C \/ B]] =
+    process1.lift((_: TimeStamped[C \/ A]) map { _.swap }).pipe(liftL(p)).map { _ map { _.swap } }
 }

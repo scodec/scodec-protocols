@@ -92,5 +92,36 @@ object TimeSeriesTransducer {
 
   def lift[A, B](f: A => B): TimeSeriesTransducer[A, B] =
     process1.lift { _ map { _ map f } }
+
+  def either[L, R, O](left: TimeSeriesTransducer[L, O], right: TimeSeriesTransducer[R, O]): TimeSeriesTransducer[L \/ R, O] = {
+    def go(curLeft: TimeSeriesTransducer[L, O], curRight: TimeSeriesTransducer[R, O]): TimeSeriesTransducer[L \/ R, O] = {
+      receive1Or[TimeSeriesValue[L \/ R], TimeSeriesValue[O]](curLeft.disconnect(Cause.Kill) ++ curRight.disconnect(Cause.Kill)) {
+        case TimeStamped(time, \/-(-\/(l))) =>
+          val (out, next) = curLeft.feed1(TimeSeriesValue(time, l)).unemit
+          emitAll(out) ++ (next match {
+            case h @ Halt(_) => h
+            case _ => go(next, curRight)
+          })
+        case TimeStamped(time, \/-(\/-(r))) =>
+          val (out, next) = curRight.feed1(TimeSeriesValue(time, r)).unemit
+          emitAll(out) ++ (next match {
+            case h @ Halt(_) => h
+            case _ => go(curLeft, next)
+          })
+        case TimeStamped(time, -\/(())) =>
+          val tick = TimeSeriesValue.tick(time)
+          val (outL, nextL) = curLeft.feed1(tick).unemit
+          val (outR, nextR) = curRight.feed1(tick).unemit
+          emitAll(outL) ++ emitAll(outR) ++ {
+            (nextL, nextR) match {
+              case (h @ Halt(_), _) => h
+              case (_, h @ Halt(_)) => h
+              case _ => go(nextL, nextR)
+            }
+          }
+      }
+    }
+    go(left, right)
+  }
 }
 
