@@ -87,3 +87,10 @@ object TimeSeries {
   }
 }
 
+/** Companion for [[TimeSeriesTransducer]]. */
+object TimeSeriesTransducer {
+
+  def lift[A, B](f: A => B): TimeSeriesTransducer[A, B] =
+    process1.lift { _ map { _ map f } }
+}
+
