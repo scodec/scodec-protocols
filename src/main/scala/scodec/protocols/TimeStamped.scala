@@ -252,10 +252,10 @@ object TimeStamped {
         case TimeStamped(time, -\/(a)) =>
           val (toEmit, next) = cur.feed1(TimeStamped(time, a)).unemit
           val out = toEmit map { _ map left }
-          emitAll(out) ++ next match {
+          emitAll(out) ++ (next match {
             case h @ Halt(_) => h
             case _ => go(next)
-          }
+          })
       }
     }
     go(p)
