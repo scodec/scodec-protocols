@@ -112,7 +112,17 @@ object TimeSeriesTransducer {
           val tick = TimeSeriesValue.tick(time)
           val (outL, nextL) = curLeft.feed1(tick).unemit
           val (outR, nextR) = curRight.feed1(tick).unemit
-          emitAll(outL) ++ emitAll(outR) ++ {
+          val out = {
+            var seenTicks: Set[DateTime] = Set.empty
+            (outL ++ outR).sortBy { _.time.getMillis }.filter {
+              case TimeStamped(time, \/-(_)) => true
+              case TimeStamped(time, -\/(_)) if seenTicks contains time => false
+              case TimeStamped(time, -\/(_)) =>
+                seenTicks += time
+                true
+            }
+          }
+          emitAll(out) ++ {
             (nextL, nextR) match {
               case (h @ Halt(_), _) => h
               case (_, h @ Halt(_)) => h
