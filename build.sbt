@@ -55,6 +55,10 @@ libraryDependencies ++= Seq(
   "org.scalacheck" %% "scalacheck" % "1.12.0" % "test"
 )
 
+libraryDependencies ++= {
+  if (scalaBinaryVersion.value startsWith "2.10") Seq(compilerPlugin("org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full)) else Nil
+}
+
 osgiSettings
 
 OsgiKeys.exportPackage := Seq("!scodec.bits,!scodec.codecs,scodec.protocols.*;version=${Bundle-Version}")
