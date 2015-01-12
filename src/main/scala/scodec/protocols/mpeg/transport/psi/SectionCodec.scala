@@ -2,15 +2,11 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.{ \/, \/-, -\/ }
-import scalaz.\/.{ right, left }
-import scalaz.std.AllInstances._
-import scalaz.syntax.std.option._
-import scalaz.syntax.either._
-
+import scalaz.{ \/, -\/, \/- }
+import \/.{ left, right }
 import scalaz.stream.{ Process1, Process }
 
-import scodec.{ Codec, DecodingContext, Err }
+import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err }
 import scodec.bits._
 import scodec.codecs._
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
@@ -26,7 +22,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     )))
 
   def encode(section: Section) = for {
-    c <- cases.get(section.tableId) \/> Err(s"unsupported table id ${section.tableId}")
+    c <- Attempt.fromOption(cases.get(section.tableId), Err(s"unsupported table id ${section.tableId}"))
     (privateBits, extension, data) = c.fromSection(section)
     preHeader = SectionHeader(section.tableId, extension.isDefined, privateBits, 0)
     encData <- extension match {
@@ -45,17 +41,17 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
   } yield if (includeCrc) withoutCrc ++ crc32mpeg(withoutCrc) else withoutCrc
 
   def decode(bits: BitVector) = (for {
-    header <- DecodingContext(Codec[SectionHeader].decode)
-    section <- DecodingContext(decodeSection(header))
-  } yield section).run(bits)
+    header <- DecodingContext(Codec[SectionHeader])
+    section <- DecodingContext.fromFunction(decodeSection(header))
+  } yield section).decode(bits)
 
-  private def decodeSection(header: SectionHeader)(bits: BitVector): Err \/ (BitVector, Section) = {
+  private def decodeSection(header: SectionHeader)(bits: BitVector): Attempt[DecodeResult[Section]] = {
 
     val c = cases.getOrElse(header.tableId, unknownSectionCase(header.tableId).asInstanceOf[Case[Any, Section]])
 
     def ensureCrcMatches(actual: Int, expected: Int) =
-      if (actual == expected) { ().right }
-      else Err(s"CRC mismatch: calculated $expected does not equal $actual").left
+      if (actual == expected) { Attempt.successful(()) }
+      else Attempt.failure(Err(s"CRC mismatch: calculated $expected does not equal $actual"))
 
     def generateCrc(ext: SectionExtension, data: Any) = for {
       encExt <- Codec[SectionExtension].encode(ext)
@@ -64,23 +60,24 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
     } yield crc32mpeg(encHeader ++ encExt ++ encData)
 
     def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
-      ext <- DecodingContext(Codec[SectionExtension].decode)
-      data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec(header)).decode)
-      actualCrc <- DecodingContext(int32.decode)
-      expectedCrc <- DecodingContext.liftE(generateCrc(ext, data))
-      _ <- DecodingContext.liftE(ensureCrcMatches(actualCrc, expectedCrc.toInt()))
+      ext <- DecodingContext(Codec[SectionExtension])
+      data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec(header)))
+      actualCrc <- DecodingContext(int32)
+      expectedCrc <- DecodingContext.liftAttempt(generateCrc(ext, data))
+      _ <- DecodingContext.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc.toInt()))
     } yield Some(ext) -> data
 
     def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {
-      data <- DecodingContext(fixedSizeBytes(header.length, c.codec(header)).decode)
+      data <- DecodingContext(fixedSizeBytes(header.length, c.codec(header)))
     } yield None -> data
 
     for {
-      result <- ( if (header.extendedSyntax) decodeExtended else decodeStandard ).run(bits)
-      (remainingBits, (ext, data)) = result
-       section <- c.toSection(header.privateBits, ext, data)
-     } yield remainingBits -> section
+      result <- ( if (header.extendedSyntax) decodeExtended else decodeStandard ).decode(bits)
+      DecodeResult((ext, data), remainder) = result
+      section <- c.toSection(header.privateBits, ext, data)
+     } yield DecodeResult(section, remainder)
   }
+
   /**
    * Stream transducer that converts packets in to sections.
    *
@@ -111,9 +108,9 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
             go(state + (pid -> AwaitingSectionHeader(bits)))
           } else {
             Codec[SectionHeader].decode(bits) match {
-              case -\/(err) =>
+              case Attempt.Failure(err) =>
                 Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ go(state - pid)
-              case \/-((bitsPostHeader, header)) =>
+              case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
                 sectionBody(state, pid, header, bitsPostHeader)
             }
           }
@@ -126,10 +123,10 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
         go(state + (pid -> AwaitingRest(header, bitsPostHeader)))
       } else {
         decodeSection(header)(bitsPostHeader) match {
-          case -\/(err) =>
+          case Attempt.Failure(err) =>
             val rest = bitsPostHeader.drop(neededBits)
             Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ potentiallyNextSection(state, pid, rest)
-          case \/-((rest, section)) =>
+          case Attempt.Successful(DecodeResult(section, rest)) =>
             Process.emit(pidSpecificSection(pid, section)) ++ potentiallyNextSection(state, pid, rest)
         }
       }
@@ -184,7 +181,7 @@ object SectionCodec {
 
   private case class Case[A, B <: Section](
     codec: SectionHeader => Codec[A],
-    toSection: (BitVector, Option[SectionExtension], A) => Err \/ B,
+    toSection: (BitVector, Option[SectionExtension], A) => Attempt[B],
     fromSection: B => (BitVector, Option[SectionExtension], A))
 
   sealed trait UnknownSection extends Section
@@ -193,7 +190,7 @@ object SectionCodec {
 
   private def unknownSectionCase(tableId: Int): Case[BitVector, UnknownSection] = Case(
     hdr => bits,
-    (privateBits, ext, bits) => right(ext match {
+    (privateBits, ext, bits) => Attempt.successful(ext match {
       case Some(e) => UnknownExtendedSection(tableId, privateBits, e, bits.bytes)
       case None =>  UnknownNonExtendedSection(tableId, privateBits, bits.bytes)
       }),

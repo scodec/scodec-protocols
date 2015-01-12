@@ -16,8 +16,8 @@ object Datagram {
     } yield encHeader.dropRight(16) ++ chksum ++ dg.data
 
     def decode(b: BitVector) = (for {
-      header <- DecodingContext(Codec[DatagramHeader].decode)
-      data <- DecodingContext(bits(8 * (header.length - 8)).decode)
-    } yield Datagram(header.sourcePort, header.destinationPort, data)).run(b)
+      header <- DecodingContext(Codec[DatagramHeader])
+      data <- DecodingContext(bits(8 * (header.length - 8)))
+    } yield Datagram(header.sourcePort, header.destinationPort, data)).decode(b)
   }
 }

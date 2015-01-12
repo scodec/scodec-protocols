@@ -2,16 +2,14 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.\/
-import scalaz.syntax.std.option._
 import scodec.bits._
-import scodec.{ Codec, Err }
+import scodec.{ Attempt, Codec, Err }
 
 trait SectionFragmentCodec[A] {
   type Repr
   def tableId: Int
   def subCodec(header: SectionHeader): Codec[Repr]
-  def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr): Err \/ A
+  def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr): Attempt[A]
   def fromSection(section: A): (BitVector, Option[SectionExtension], Repr)
 }
 
@@ -30,7 +28,7 @@ object SectionFragmentCodec {
       def tableId = tid
       def subCodec(header: SectionHeader) = Codec[Repr]
       def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
-        extension.map { ext => build(privateBits, ext, data) } \/> Err("extended section missing expected section extension")
+        Attempt.fromOption(extension.map { ext => build(privateBits, ext, data) }, Err("extended section missing expected section extension"))
       def fromSection(section: A) =
         extract(section) match { case (privateBits, ext, data) => (privateBits, Some(ext), data) }
     }
@@ -46,7 +44,7 @@ object SectionFragmentCodec {
       def tableId = tid
       def subCodec(header: SectionHeader) = codec(header)
       def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
-        \/.right(build(privateBits, data))
+        Attempt.successful(build(privateBits, data))
       def fromSection(section: A) = {
         val (privateBits, r) = extract(section)
         (privateBits, None, r)

@@ -53,10 +53,10 @@ object SimpleHeader {
       }
 
       def decode(bits: BitVector) = {
-        componentCodec.decode(bits) map {
-          case (rest, _ :: totalLength :: id :: ttl :: proto :: chksum :: srcIp :: dstIp :: HNil) =>
-            rest -> SimpleHeader(totalLength - 20, id, ttl, proto, srcIp, dstIp)
-        }
+        componentCodec.decode(bits) map { _ mapValue {
+          case _ :: totalLength :: id :: ttl :: proto :: chksum :: srcIp :: dstIp :: HNil =>
+            SimpleHeader(totalLength - 20, id, ttl, proto, srcIp, dstIp)
+        }}
       }
     }
   }

@@ -8,6 +8,7 @@ import scalaz.syntax.id._
 import scalaz.syntax.foldable._
 
 import scodec.bits._
+import scodec.interop.scalaz._
 
 class PacketTest extends ProtocolsSpec {
 

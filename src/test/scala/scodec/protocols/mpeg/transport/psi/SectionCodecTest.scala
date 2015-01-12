@@ -20,7 +20,7 @@ class SectionCodecTest extends ProtocolsSpec {
 
       "handles case where section starts at beginning of packet and is fully contained within packet" in {
         val pas = ProgramAssociationTable.toSections(ProgramAssociationTable(TransportStreamId(1), 15, true, Map(ProgramNumber(1) -> Pid(2)))).head
-        val pasEnc = sectionCodec.encodeValid(pas)
+        val pasEnc = sectionCodec.encode(pas).require
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), pasEnc)
 
         val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
@@ -32,7 +32,7 @@ class SectionCodecTest extends ProtocolsSpec {
           (for (i <- 0 until ProgramAssociationTable.MaxProgramsPerSection)
           yield ProgramNumber(i) -> Pid(i)).toMap
         )).head
-        val pasEnc = sectionCodec.encodeValid(pas)
+        val pasEnc = sectionCodec.encode(pas).require
         val packets = Packet.packetize(Pid(0), ContinuityCounter(0), pasEnc)
 
         val p = Process.emitAll(packets).toSource pipe sectionCodec.depacketize
@@ -44,7 +44,7 @@ class SectionCodecTest extends ProtocolsSpec {
           (for (i <- 0 until ProgramAssociationTable.MaxProgramsPerSection)
           yield ProgramNumber(i) -> Pid(i)).toMap
         )).head
-        val pasEnc = sectionCodec.encodeValid(pas)
+        val pasEnc = sectionCodec.encode(pas).require
         val packets = Packet.packetize(Pid(0), ContinuityCounter(1), pasEnc)
         val withDiscontinuity = packets.updated(0, packets.head.copy(header = packets.head.header.copy(continuityCounter = ContinuityCounter(15))))
 
@@ -59,7 +59,7 @@ class SectionCodecTest extends ProtocolsSpec {
         implicit val sfc = SectionFragmentCodec.nonExtended[SmallSection, Int](0, h => (constant(bin"0") ~> uint(7)), (p, i) => SmallSection(i), ss => (bin"010", ss.x))
         val sc = SectionCodec.supporting[SmallSection]
 
-        val encodedSections = sections map sc.encodeValid
+        val encodedSections = sections map { s => sc.encode(s).require }
         val ss0 = encodedSections(0).bytes
         val ss1 = encodedSections(1).bytes
         val indexOfInt = ss0.toIndexedSeq.zipWithIndex.find { case (x, idx) => ss1(idx) != x }.map { case (x, idx) => idx }.get
@@ -76,7 +76,7 @@ class SectionCodecTest extends ProtocolsSpec {
 
       "reports invalid CRC" in {
         val pas = ProgramAssociationTable.toSections(ProgramAssociationTable(TransportStreamId(1), 15, true, Map(ProgramNumber(1) -> Pid(2)))).head
-        val pasEnc = sectionCodec.encodeValid(pas)
+        val pasEnc = sectionCodec.encode(pas).require
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
         val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
