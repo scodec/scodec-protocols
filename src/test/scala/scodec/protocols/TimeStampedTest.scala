@@ -80,7 +80,7 @@ class TimeStampedTest extends ProtocolsSpec {
     }
 
     "support reordering timestamped values over a specified time buffer such that output is monotonically increasing in time" which {
-      def ts(value: Int) = TimeStamped(new DateTime(value), ())
+      def ts(value: Int) = TimeStamped(new DateTime(value), value)
 
       val onTheSecond = Process.range(1, 10) map { x => ts(x * 1000) }
       val onTheQuarterPast = onTheSecond map { _ mapTime { t => new DateTime(t.getMillis + 250) } }
@@ -103,6 +103,14 @@ class TimeStampedTest extends ProtocolsSpec {
 
         val reordered20ms = events pipe TimeStamped.reorderLocally(20.milliseconds)
         reordered20ms.toList.size should be >= 10
+      }
+
+      "emits values with the same timestamp in insertion order" in {
+        val onTheSecondBumped = onTheSecond map { _ map { _ + 1 } }
+        val inOrder = (onTheSecond interleave onTheQuarterPast) interleave (onTheSecondBumped interleave onTheQuarterPast)
+        val outOfOrder = (onTheQuarterPast interleave onTheSecond) interleave (onTheQuarterPast interleave onTheSecondBumped)
+        val reordered = outOfOrder pipe TimeStamped.reorderLocally(1.second)
+        reordered.toList shouldBe inOrder.toList
       }
     }
   }
