@@ -3,7 +3,7 @@ import ReleaseStateTransformations._
 import ReleasePlugin._
 import ReleaseKeys._
 
-organization := "org.typelevel"
+organization := "org.scodec"
 
 name := "scodec-protocols"
 

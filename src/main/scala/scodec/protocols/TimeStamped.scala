@@ -34,8 +34,17 @@ object TimeStamped {
       Lens.lensFamilyu((tsa, b) => TimeStamped(tsa.time, b), _.value)
   }
 
-  implicit def ordering[A]: Ordering[TimeStamped[A]] = new Ordering[TimeStamped[A]] {
+  /** Orders values by timestamp -- values with the same timestamp are considered equal. */
+  def timeBasedOrdering[A]: Ordering[TimeStamped[A]] = new Ordering[TimeStamped[A]] {
     def compare(x: TimeStamped[A], y: TimeStamped[A]) = x.time compareTo y.time
+  }
+
+  /** Orders values by timestamp, then by value. */
+  implicit def ordering[A](implicit A: Ordering[A]): Ordering[TimeStamped[A]] = new Ordering[TimeStamped[A]] {
+    def compare(x: TimeStamped[A], y: TimeStamped[A]) = x.time compareTo y.time match {
+      case 0 => A.compare(x.value, y.value)
+      case other => other
+    }
   }
 
   implicit def traverseInstance: Traverse[TimeStamped] = new Traverse[TimeStamped] {
@@ -231,16 +240,21 @@ object TimeStamped {
    * values will be emitted in order.
    */
   def attemptReorderLocally[A](over: FiniteDuration): Process1[TimeStamped[A], TimeStamped[A]] = {
-    import scala.collection.immutable.SortedSet
+    import scala.collection.immutable.SortedMap
     val overMillis = over.toMillis
-    def go(buffered: SortedSet[TimeStamped[A]]): Process1[TimeStamped[A], TimeStamped[A]] = {
-      receive1Or[TimeStamped[A], TimeStamped[A]](emitAll(buffered.toSeq)) { t =>
+
+    def emitMapValues(m: SortedMap[Long, Vector[TimeStamped[A]]]) =
+      emitAll(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss })
+
+    def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]]): Process1[TimeStamped[A], TimeStamped[A]] = {
+      receive1Or[TimeStamped[A], TimeStamped[A]](emitMapValues(buffered)) { t =>
         val until = t.time.getMillis - overMillis
-        val (toEmit, toBuffer) = buffered span { x => x.time.getMillis <= until }
-        emitAll(toEmit.toSeq) ++ go(toBuffer + t)
+        val (toEmit, toBuffer) = buffered span { case (x, _) => x <= until }
+        val updatedBuffer = toBuffer + (t.time.getMillis -> (toBuffer.getOrElse(t.time.getMillis, Vector.empty[TimeStamped[A]]) :+ t))
+        emitMapValues(toEmit) ++ go(updatedBuffer)
       }
     }
-    go(SortedSet.empty)
+    go(SortedMap.empty)
   }
 
   /** `TimeStamped` version of [[scalaz.stream.process1.liftL]]. */
