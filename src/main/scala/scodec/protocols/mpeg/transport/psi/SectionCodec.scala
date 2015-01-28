@@ -15,7 +15,7 @@ import scodec.bits._
 import scodec.codecs._
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
-class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) extends Codec[Section] {
+class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], verifyCrc: Boolean) extends Codec[Section] {
   import SectionCodec._
 
   def supporting[A <: Section](implicit c: SectionFragmentCodec[A]): SectionCodec =
@@ -23,7 +23,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
       hdr => c.subCodec(hdr).asInstanceOf[Codec[Any]],
       (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
       section => c.fromSection(section.asInstanceOf[A])
-    )))
+    )), verifyCrc)
 
   def encode(section: Section) = for {
     c <- cases.get(section.tableId) \/> Err(s"unsupported table id ${section.tableId}")
@@ -61,14 +61,14 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
       encExt <- Codec[SectionExtension].encode(ext)
       encData <- c.codec(header).encode(data)
       encHeader <- Codec[SectionHeader].encode(header)
-    } yield crc32mpeg(encHeader ++ encExt ++ encData)
+    } yield (crc32mpeg(encHeader ++ encExt ++ encData).toInt())
 
     def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
       ext <- DecodingContext(Codec[SectionExtension].decode)
       data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec(header)).decode)
       actualCrc <- DecodingContext(int32.decode)
-      expectedCrc <- DecodingContext.liftE(generateCrc(ext, data))
-      _ <- DecodingContext.liftE(ensureCrcMatches(actualCrc, expectedCrc.toInt()))
+      expectedCrc <- DecodingContext.liftE { if (verifyCrc) generateCrc(ext, data) else right(actualCrc) }
+      _ <- DecodingContext.liftE(ensureCrcMatches(actualCrc, expectedCrc))
     } yield Some(ext) -> data
 
     def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {
@@ -172,10 +172,12 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
 
 object SectionCodec {
 
-  def empty: SectionCodec = new SectionCodec(Map.empty)
+  def empty(verifyCrc: Boolean = true): SectionCodec = new SectionCodec(Map.empty, verifyCrc)
+
+  def noCrcVerification: SectionCodec = empty(verifyCrc = false)
 
   def supporting[S <: Section : SectionFragmentCodec]: SectionCodec =
-    empty.supporting[S]
+    empty().supporting[S]
 
   def psi: SectionCodec =
     supporting[ProgramAssociationSection].
