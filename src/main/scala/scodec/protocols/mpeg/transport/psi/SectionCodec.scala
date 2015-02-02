@@ -15,7 +15,7 @@ import scodec.bits._
 import scodec.codecs._
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
-class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], verifyCrc: Boolean) extends Codec[Section] {
+class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], verifyCrc: Boolean = true) extends Codec[Section] {
   import SectionCodec._
 
   def supporting[A <: Section](implicit c: SectionFragmentCodec[A]): SectionCodec =
@@ -24,6 +24,8 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
       (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
       section => c.fromSection(section.asInstanceOf[A])
     )), verifyCrc)
+
+  def disableCrcVerification: SectionCodec = new SectionCodec(cases, false)
 
   def encode(section: Section) = for {
     c <- cases.get(section.tableId) \/> Err(s"unsupported table id ${section.tableId}")
@@ -172,12 +174,10 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
 
 object SectionCodec {
 
-  def empty(verifyCrc: Boolean = true): SectionCodec = new SectionCodec(Map.empty, verifyCrc)
-
-  def noCrcVerification: SectionCodec = empty(verifyCrc = false)
+  def empty: SectionCodec = new SectionCodec(Map.empty)
 
   def supporting[S <: Section : SectionFragmentCodec]: SectionCodec =
-    empty().supporting[S]
+    empty.supporting[S]
 
   def psi: SectionCodec =
     supporting[ProgramAssociationSection].
