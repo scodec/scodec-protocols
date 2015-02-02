@@ -85,7 +85,7 @@ class SectionCodecTest extends ProtocolsSpec {
       }
 
       "does not report invalid CRC when verifyCrc is disabled" in {
-        val sectionCodec = SectionCodec.noCrcVerification.supporting[ProgramAssociationSection]
+        val sectionCodec = SectionCodec.psi.disableCrcVerification.supporting[ProgramAssociationSection]
         val pas = ProgramAssociationTable.toSections(ProgramAssociationTable(TransportStreamId(1), 15, true, Map(ProgramNumber(1) -> Pid(2)))).head
         val pasEnc = sectionCodec.encodeValid(pas)
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
