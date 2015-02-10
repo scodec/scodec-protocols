@@ -10,6 +10,8 @@ case class Datagram(sourcePort: Port, destinationPort: Port, data: BitVector)
 
 object Datagram {
   implicit val codec: Codec[Datagram] = new Codec[Datagram] {
+    def sizeBound = Codec[DatagramHeader].sizeBound.atLeast
+
     def encode(dg: Datagram) = for {
       encHeader <- Codec.encode(DatagramHeader(dg.sourcePort, dg.destinationPort, 8 + dg.data.bytes.size, 0))
       chksum = checksum(encHeader ++ dg.data)

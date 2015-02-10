@@ -6,12 +6,12 @@ import scalaz.{ \/, -\/, \/- }
 import \/.{ left, right }
 import scalaz.stream.{ Process1, Process }
 
-import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err }
+import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err, SizeBound }
 import scodec.bits._
 import scodec.codecs._
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
-class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) extends Codec[Section] {
+class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], verifyCrc: Boolean = true) extends Codec[Section] {
   import SectionCodec._
 
   def supporting[A <: Section](implicit c: SectionFragmentCodec[A]): SectionCodec =
@@ -19,7 +19,11 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
       hdr => c.subCodec(hdr).asInstanceOf[Codec[Any]],
       (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
       section => c.fromSection(section.asInstanceOf[A])
-    )))
+    )), verifyCrc)
+
+  def disableCrcVerification: SectionCodec = new SectionCodec(cases, false)
+
+  def sizeBound = SizeBound.unknown
 
   def encode(section: Section) = for {
     c <- Attempt.fromOption(cases.get(section.tableId), Err(s"unsupported table id ${section.tableId}"))
@@ -57,14 +61,14 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]]) ex
       encExt <- Codec[SectionExtension].encode(ext)
       encData <- c.codec(header).encode(data)
       encHeader <- Codec[SectionHeader].encode(header)
-    } yield crc32mpeg(encHeader ++ encExt ++ encData)
+    } yield (crc32mpeg(encHeader ++ encExt ++ encData).toInt())
 
     def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
       ext <- DecodingContext(Codec[SectionExtension])
       data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec(header)))
       actualCrc <- DecodingContext(int32)
-      expectedCrc <- DecodingContext.liftAttempt(generateCrc(ext, data))
-      _ <- DecodingContext.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc.toInt()))
+      expectedCrc <- DecodingContext.liftAttempt { if (verifyCrc) generateCrc(ext, data) else Attempt.successful(actualCrc) }
+      _ <- DecodingContext.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc))
     } yield Some(ext) -> data
 
     def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {

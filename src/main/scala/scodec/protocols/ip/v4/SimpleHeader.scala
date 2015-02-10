@@ -3,7 +3,7 @@ package ip
 package v4
 
 import scodec.bits._
-import scodec.Codec
+import scodec.{ Codec, SizeBound }
 import scodec.codecs._
 import scodec.codecs.literals._
 import scodec.stream._
@@ -44,6 +44,8 @@ object SimpleHeader {
     }.dropUnits
 
     new Codec[SimpleHeader] {
+      def sizeBound = SizeBound.exact(160)
+
       def encode(header: SimpleHeader) = {
         val totalLength = header.dataLength + 20
         for {

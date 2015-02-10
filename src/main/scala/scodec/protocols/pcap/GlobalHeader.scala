@@ -3,7 +3,7 @@ package scodec.protocols.pcap
 import scalaz.\/.{ left, right }
 import scodec.Err
 import scodec.bits.{ BitVector, ByteOrdering }
-import scodec.{ Attempt, Codec, DecodeResult }
+import scodec.{ Attempt, Codec, DecodeResult, SizeBound }
 import scodec.codecs._
 
 case class GlobalHeader(
@@ -20,6 +20,8 @@ object GlobalHeader {
   private val MagicNumberRev = 0xd4c3b2a1L
 
   private val byteOrdering: Codec[ByteOrdering] = new Codec[ByteOrdering] {
+    def sizeBound = SizeBound.exact(32)
+
     def encode(bo: ByteOrdering) =
       endiannessDependent(uint32, uint32L)(bo).encode(MagicNumber)
 
