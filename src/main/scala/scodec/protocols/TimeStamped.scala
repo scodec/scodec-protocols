@@ -173,7 +173,7 @@ object TimeStamped {
       receiveL { tsa => emit(tsa) ++ read(tsa.time) }
     }
 
-    (source wye awakeEvery(tickDuration))(doThrottle)
+    (source wye time.awakeEvery(tickDuration))(doThrottle)
   }
 
   /**

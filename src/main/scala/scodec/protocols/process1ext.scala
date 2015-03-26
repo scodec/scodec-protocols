@@ -75,7 +75,7 @@ object process1ext {
   /** Stream transducer that drops left values from a stream of `F[A \/ B]` values. */
   def drainFL[F[_]: Traverse, A, B]: Process1[F[A \/ B], F[B]] =
     process1.id[F[A \/ B]] flatMap { fab =>
-      fab.traverse(_.fold(_ => halt, emit))(Process.ProcessMonadPlus[Nothing])
+      fab.traverse(_.fold(_ => halt, emit))(Process.processMonadPlus[Nothing])
     }
 
   /** Stream transducer that drops right values from a stream of `F[A \/ B]` values. */

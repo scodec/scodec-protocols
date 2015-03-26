@@ -25,14 +25,14 @@ class TimeStampedTest extends ProtocolsSpec {
           TimeStamped(0, 1),
           TimeStamped(0.5, 2),
           TimeStamped(1, 1),
-          TimeStamped(2.3, 2))).liftIO
+          TimeStamped(2.3, 2))).toSource
         data.pipe(TimeStamped.rate(1.second)(x => x)).runLog.run shouldBe Vector(
           TimeStamped(1, 3), TimeStamped(2, 1), TimeStamped(3, 2))
         data.pipe(TimeStamped.rate(2.seconds)(x => x)).runLog.run shouldBe Vector(TimeStamped(2, 4), TimeStamped(4, 2))
       }
 
       "emits 0s when values are skipped over" in {
-        val data = Process.emitAll(Seq(TimeStamped(0, 1), TimeStamped(3.3, 2))).liftIO
+        val data = Process.emitAll(Seq(TimeStamped(0, 1), TimeStamped(3.3, 2))).toSource
         data.pipe(TimeStamped.rate(1.second)(x => x)).runLog.run shouldBe Vector(
           TimeStamped(1, 1), TimeStamped(2, 0), TimeStamped(3, 0), TimeStamped(4, 2))
 
@@ -47,7 +47,7 @@ class TimeStampedTest extends ProtocolsSpec {
           TimeStamped(1.5, hex"deadbeef"),
           TimeStamped(2.5, hex"deadbeef"),
           TimeStamped(2.6, hex"deadbeef")
-        )).liftIO
+        )).toSource
 
         val bitsPerSecond = data.pipe(TimeStamped.rate(1.second)(x => x.size * 8))
 

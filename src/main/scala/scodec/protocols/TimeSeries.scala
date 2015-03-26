@@ -35,7 +35,7 @@ object TimeSeries {
 
   /** Stream of time ticks spaced by `tickPeriod`. */
   private def timeTicks(tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: ScheduledExecutorService): Process[Task, TimeStamped[Unit]] =
-    awakeEvery(tickPeriod) map { _ => TimeStamped.now(()) }
+    time.awakeEvery(tickPeriod) map { _ => TimeStamped.now(()) }
 
   /**
    * Stream transducer that converts a stream of timestamped values with monotonically increasing timestamps in
