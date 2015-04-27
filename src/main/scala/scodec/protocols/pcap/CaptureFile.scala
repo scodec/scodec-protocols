@@ -9,6 +9,13 @@ import scodec.bits.BitVector
 import scodec.codecs._
 import scodec.stream._
 
+import scalaz.stream._
+import scalaz.concurrent._
+import scodec.{ Codec, Attempt, DecodeResult }
+import scodec.stream.decode.DecodingError
+
+import shapeless.Lazy
+
 case class CaptureFile(
   header: GlobalHeader,
   records: Vector[Record])
@@ -19,11 +26,11 @@ object CaptureFile {
       vector(Record.codec(hdr.ordering)).hlist
   }}.as[CaptureFile]
 
-  def payloadStreamDecoderPF[A](linkDecoders: PartialFunction[LinkType, StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
-    payloadStreamDecoder(linkDecoders.lift)
+  def payloadStreamDecoderPF[A](chunkSize: Int = 256)(linkDecoders: PartialFunction[LinkType, StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
+    payloadStreamDecoder(chunkSize)(linkDecoders.lift)
 
-  def payloadStreamDecoder[A](linkDecoders: LinkType => Option[StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
-    streamDecoder { global =>
+  def payloadStreamDecoder[A](chunkSize: Int = 256)(linkDecoders: LinkType => Option[StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
+    streamDecoder(chunkSize) { global =>
       linkDecoders(global.network) match {
         case None => left(Err(s"unsupported link type ${global.network}"))
         case Some(decoder) => right {
@@ -32,18 +39,20 @@ object CaptureFile {
       }
     }
 
-  def recordStreamDecoder: StreamDecoder[Record] =
-    streamDecoder[Record] { global => right { hdr =>
+  def recordStreamDecoder(chunkSize: Int = 256): StreamDecoder[Record] =
+    streamDecoder[Record](chunkSize) { global => right { hdr =>
       decode.once(bits) map { bs =>
         Record(hdr.copy(timestampSeconds = hdr.timestampSeconds + global.thiszone), bs)
       }
     }}
 
-  def streamDecoder[A](f: GlobalHeader => Err \/ (RecordHeader => StreamDecoder[A])): StreamDecoder[A] = for {
+  def streamDecoder[A](chunkSize: Int = 256)(f: GlobalHeader => Err \/ (RecordHeader => StreamDecoder[A])): StreamDecoder[A] = for {
     global <- decode.once[GlobalHeader]
     decoderFn <- f(global).fold(decode.fail, decode.emit)
-    values <- decode.many(RecordHeader.codec(global.ordering)) flatMap { header =>
-      decode.isolate(header.includedLength * 8) { decoderFn(header) }
-    }
+    recordDecoder =
+      RecordHeader.codec(global.ordering) flatMap { header =>
+        decode.isolateBytes(header.includedLength) { decoderFn(header) }.strict
+      }
+    values <- decode.manyChunked(chunkSize)(Lazy(recordDecoder)).flatMap(x => decode.emitAll(x))
   } yield values
 }

@@ -15,10 +15,12 @@ import org.joda.time.DateTime
 
 /** Companion for [[TimeSeriesValue]]. */
 object TimeSeriesValue {
+  private val aTick: Unit \/ Nothing = left(())
+
   def apply[A](time: DateTime, value: A): TimeSeriesValue[A] = TimeStamped(time, right(value))
-  def tick(time: DateTime): TimeSeriesValue[Nothing] = TimeStamped(time, left(()))
+  def tick(time: DateTime): TimeSeriesValue[Nothing] = TimeStamped(time, aTick)
   def now[A](value: A): TimeSeriesValue[A] = TimeStamped.now(right(value))
-  def nowTick: TimeSeriesValue[Nothing] = TimeStamped.now(left(()))
+  def nowTick: TimeSeriesValue[Nothing] = TimeStamped.now(aTick)
   def lift[A](t: TimeStamped[A]): TimeSeriesValue[A] = t map right
 }
 
@@ -45,13 +47,14 @@ object TimeSeries {
   def interpolateTicks[A](tickPeriod: FiniteDuration = 1.second): Process1[TimeStamped[A], TimeSeriesValue[A]] = {
     val tickPeriodMillis = tickPeriod.toMillis
     def go(nextTick: DateTime): Process1[TimeStamped[A], TimeSeriesValue[A]] = {
+      def tickTime(x: Int) = nextTick plus (x * tickPeriodMillis)
       await1[TimeStamped[A]] flatMap { t =>
         if (t.time.getMillis < nextTick.getMillis) emit(t map right) ++ go(nextTick)
         else {
           val tickCount = ((t.time.getMillis - nextTick.getMillis) / tickPeriodMillis + 1).toInt
-          val tickTimes = (0 to tickCount) map { x => nextTick plus (x * tickPeriodMillis) }
-          val ticks = tickTimes map { t => TimeStamped(t, left(())) }
-          emitAll(ticks.init) ++ emit(t map right) ++ go(ticks.last.time)
+          val tickTimes = (0 until tickCount) map tickTime
+          val ticks = tickTimes map TimeSeriesValue.tick
+          emitAll(ticks) ++ emit(t map right) ++ go(tickTime(tickCount))
         }
       }
     }
