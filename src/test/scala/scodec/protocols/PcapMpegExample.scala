@@ -16,13 +16,13 @@ object PcapMpegExample extends App {
   case class IpAndPort(address: ip.v4.Address, port: ip.Port)
   case class CapturedPacket(source: IpAndPort, destination: IpAndPort, packet: mpeg.transport.Packet)
 
-  val decoder: StreamDecoder[TimeStamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF {
+  val decoder: StreamDecoder[TimeStamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF(chunkSize = 256) {
     case LinkType.Ethernet =>
       for {
         ethernetHeader <- pcap.EthernetFrameHeader.sdecoder
         ipHeader <- ip.v4.SimpleHeader.sdecoder(ethernetHeader)
         udpDatagram <- ip.udp.DatagramHeader.sdecoder(ipHeader.protocol)
-        packets <- decode.tryMany[mpeg.transport.Packet] map { p =>
+        packets <- decode.tryManyChunked[mpeg.transport.Packet](chunkSize = 10) map { p =>
           CapturedPacket(
             IpAndPort(ipHeader.sourceIp, udpDatagram.sourcePort),
             IpAndPort(ipHeader.destinationIp, udpDatagram.destinationPort),
