@@ -11,12 +11,14 @@ import scodec.bits._
 import scodec.codecs._
 import shapeless._
 
+import Descriptor._
+
 case class ProgramMapTable(
   programNumber: ProgramNumber,
   version: Int,
   current: Boolean,
   pcrPid: Pid,
-  programInfoDescriptors: BitVector,
+  programInfoDescriptors: Vector[Descriptor],
   componentStreamMapping: Map[StreamType, NonEmptyList[ProgramMapRecord]]
 ) extends Table {
   def tableId = ProgramMapSection.TableId
@@ -59,15 +61,15 @@ object ProgramMapTable {
 }
 
 case class StreamType(value: Int)
-case class ProgramMapRecord(pid: Pid, descriptors: BitVector)
+case class ProgramMapRecord(pid: Pid, descriptors: Vector[Descriptor])
 object ProgramMapRecord {
-  def apply(pid: Pid) = new ProgramMapRecord(pid, BitVector.empty)
+  def apply(pid: Pid) = new ProgramMapRecord(pid, Vector.empty)
 }
 
 case class ProgramMapSection(
   extension: SectionExtension,
   pcrPid: Pid,
-  programInfoDescriptors: BitVector,
+  programInfoDescriptors: Vector[Descriptor],
   componentStreamMapping: Vector[(StreamType, ProgramMapRecord)]
 ) extends ExtendedSection {
   def tableId = ProgramMapSection.TableId
@@ -77,11 +79,11 @@ case class ProgramMapSection(
 object ProgramMapSection {
   val TableId = 2
 
-  private type Fragment = Pid :: BitVector :: Vector[(StreamType, ProgramMapRecord)] :: HNil
+  private type Fragment = Pid :: Vector[Descriptor] :: Vector[(StreamType, ProgramMapRecord)] :: HNil
   private val fragmentCodec: Codec[Fragment] = {
     def pid: Codec[Pid] = reserved(3) ~> Codec[Pid]
-    def descriptor: Codec[BitVector] =
-      reserved(4) ~> variableSizeBytes(uint(12), bits)
+    def descriptor: Codec[Vector[Descriptor]] =
+      reserved(4) ~> variableSizeBytes(uint(12), vector(Codec[Descriptor]))
     def programMapRecord: Codec[ProgramMapRecord] =
       (("pid" | pid) :: ("es_descriptors" | descriptor)).as[ProgramMapRecord]
 
