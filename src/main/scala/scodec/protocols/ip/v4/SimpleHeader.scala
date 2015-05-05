@@ -51,7 +51,7 @@ object SimpleHeader {
         for {
           encoded <- componentCodec.encode(5 :: totalLength :: header.id :: header.ttl :: header.protocol :: BitVector.low(16) :: header.sourceIp :: header.destinationIp :: HNil)
           chksum = checksum(encoded)
-        } yield encoded.patch(16 + 16 + 16, chksum)
+        } yield encoded.patch(16L + 16L + 16L, chksum)
       }
 
       def decode(bits: BitVector) = {

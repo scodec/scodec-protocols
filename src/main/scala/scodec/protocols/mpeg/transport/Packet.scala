@@ -23,7 +23,7 @@ object Packet {
     def go(first: Boolean, cc: ContinuityCounter, remaining: BitVector, acc: Vector[Packet]): Vector[Packet] = {
       if (remaining.isEmpty) acc
       else {
-        val (packetData, remData) = remaining.splitAt(8 * (if (first) 183 else 184))
+        val (packetData, remData) = remaining.splitAt(8L * (if (first) 183 else 184))
         go(false, cc.next, remData, acc :+ payload(pid, cc, if (first) Some(0) else None, packetData))
       }
     }
@@ -32,7 +32,7 @@ object Packet {
 
   def packetizeMany(pid: Pid, startingCountinuityCounter: ContinuityCounter, sections: Vector[BitVector]): Vector[Packet] = {
 
-    /**
+    /*
      * Accumulates up to `n` bits from the specified bit vectors.
      * Returns a triple consisting of:
      *  - the accumulated bits (up to size `n`)

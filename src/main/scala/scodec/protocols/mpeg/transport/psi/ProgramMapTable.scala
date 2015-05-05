@@ -4,7 +4,6 @@ package psi
 
 import scalaz.{ \/, NonEmptyList }
 import scalaz.\/.{ left, right }
-import scalaz.std.AllInstances._
 import scalaz.syntax.std.option._
 import scodec.Codec
 import scodec.bits._

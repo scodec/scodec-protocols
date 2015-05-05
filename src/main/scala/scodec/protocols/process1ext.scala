@@ -5,7 +5,7 @@ import language.higherKinds
 import scalaz.{ \/, -\/, \/-, Bind, Lens, LensFamily, Traverse }
 import \/.{ left, right }
 import scalaz.syntax.traverse._
-import scalaz.stream.{ Cause, Process, Process0, Process1, process1 }
+import scalaz.stream.{ Cause, Process, Process1, process1 }
 import Process._
 import process1.Await1
 

@@ -21,7 +21,7 @@ sealed abstract class GroupedSections {
 object GroupedSections {
   private case class DefaultGroupedSections(tableId: Int, nel: NonEmptyList[Section]) extends GroupedSections {
     def as[A <: Section : ClassTag]: Option[NonEmptyList[A]] = {
-      if (Tag.unwrap(nel.foldMap1(x => Tags.Conjunction(x.isInstanceOf[A]))))
+      if (Tag.unwrap(nel.foldMap1(x => Tags.Conjunction(x match { case _: A => true; case _ => false }))))
         Some(nel.asInstanceOf[NonEmptyList[A]])
       else None
     }

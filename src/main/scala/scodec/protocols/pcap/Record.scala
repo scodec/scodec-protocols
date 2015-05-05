@@ -10,7 +10,7 @@ case class Record(
 
 object Record {
   implicit def codec(implicit ordering: ByteOrdering): Codec[Record] = "record" | {
-    ("record_header" | Codec[RecordHeader]              ) >>:~ { hdr =>
-    ("record_data"   | bits(hdr.includedLength.toInt * 8) ).hlist
+    ("record_header" | Codec[RecordHeader]               ) >>:~ { hdr =>
+    ("record_data"   | bits(hdr.includedLength.toInt * 8L) ).hlist
   }}.as[Record]
 }

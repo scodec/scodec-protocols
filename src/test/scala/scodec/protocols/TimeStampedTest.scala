@@ -17,8 +17,8 @@ class TimeStampedTest extends ProtocolsSpec {
 
     "support calculation of rates" which {
 
-      implicit def intToDateTime(x: Int): DateTime = new DateTime(x * 1000)
-      implicit def doubleToDateTime(x: Double): DateTime = new DateTime((x * 1000).toLong)
+      implicit def intToDateTime(x: Int): DateTime = new DateTime(x * 1000L)
+      implicit def doubleToDateTime(x: Double): DateTime = new DateTime((x * 1000L).toLong)
 
       "emits accumulated feature values for each specified time period and emits a final value" in {
         val data = Process.emitAll(Seq(
@@ -59,13 +59,13 @@ class TimeStampedTest extends ProtocolsSpec {
           Average(totalSamples, avg)
         }, Average(0, 0))
 
-        val avgBitrate = bitsPerSecond.runFoldMap { bits => Average(1, bits.value) }.run
+        val avgBitrate = bitsPerSecond.runFoldMap { bits => Average(1, bits.value.toDouble) }.run
         avgBitrate.value shouldBe 53.3 +- 1.0
       }
     }
 
     "support filtering a source of timestamped values such that output is monotonically increasing in time" which {
-      def ts(value: Int) = TimeStamped(new DateTime(value), ())
+      def ts(value: Int) = TimeStamped(new DateTime(value.toLong), ())
       val data = Process.emitAll(Seq(0, -2, -1, 1, 5, 3, 6) map ts)
 
       "supports dropping out-of-order values" in {
@@ -80,7 +80,7 @@ class TimeStampedTest extends ProtocolsSpec {
     }
 
     "support reordering timestamped values over a specified time buffer such that output is monotonically increasing in time" which {
-      def ts(value: Int) = TimeStamped(new DateTime(value), value)
+      def ts(value: Int) = TimeStamped(new DateTime(value.toLong), value.toLong)
 
       val onTheSecond = Process.range(1, 10) map { x => ts(x * 1000) }
       val onTheQuarterPast = onTheSecond map { _ mapTime { t => new DateTime(t.getMillis + 250) } }

@@ -3,14 +3,11 @@ package pcap
 
 import scalaz.\/
 import scalaz.\/.{ left, right }
-import scalaz.syntax.std.option._
 import scodec.{ Codec, Decoder, Err }
 import scodec.bits.BitVector
 import scodec.codecs._
 import scodec.stream._
 
-import scalaz.stream._
-import scalaz.concurrent._
 import scodec.{ Codec, Attempt, DecodeResult }
 import scodec.stream.decode.DecodingError
 
@@ -34,7 +31,7 @@ object CaptureFile {
       linkDecoders(global.network) match {
         case None => left(Err(s"unsupported link type ${global.network}"))
         case Some(decoder) => right {
-          hdr => decoder map { value => TimeStamped(hdr.timestamp plus (global.thiszone * 1000), value) }
+          hdr => decoder map { value => TimeStamped(hdr.timestamp plus (global.thiszone * 1000L), value) }
         }
       }
     }

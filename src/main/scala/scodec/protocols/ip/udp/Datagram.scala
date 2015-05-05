@@ -19,7 +19,7 @@ object Datagram {
 
     def decode(b: BitVector) = (for {
       header <- DecodingContext(Codec[DatagramHeader])
-      data <- DecodingContext(bits(8 * (header.length - 8)))
+      data <- DecodingContext(bits(8L * (header.length - 8)))
     } yield Datagram(header.sourcePort, header.destinationPort, data)).decode(b)
   }
 }

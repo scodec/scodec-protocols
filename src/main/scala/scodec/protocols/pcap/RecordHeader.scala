@@ -21,7 +21,7 @@ object RecordHeader {
   private def timestamp(seconds: Long, micros: Long): DateTime = new DateTime((seconds.seconds + micros.micros).toMillis)
 
   def apply(time: DateTime, includedLength: Long, originalLength: Long): RecordHeader =
-    RecordHeader(time.getMillis / 1000, time.getMillisOfSecond * 1000, includedLength, originalLength)
+    RecordHeader(time.getMillis / 1000, time.getMillisOfSecond * 1000L, includedLength, originalLength)
 
   implicit def codec(implicit ordering: ByteOrdering): Codec[RecordHeader] = "record-header" | {
     ("ts_sec"   | guint32 ) ::

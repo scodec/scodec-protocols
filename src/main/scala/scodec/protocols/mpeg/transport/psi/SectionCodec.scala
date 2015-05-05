@@ -65,14 +65,14 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
 
     def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
       ext <- DecodingContext(Codec[SectionExtension])
-      data <- DecodingContext(fixedSizeBytes(header.length - 9, c.codec(header)))
+      data <- DecodingContext(fixedSizeBytes(header.length.toLong - 9, c.codec(header)))
       actualCrc <- DecodingContext(int32)
       expectedCrc <- DecodingContext.liftAttempt { if (verifyCrc) generateCrc(ext, data) else Attempt.successful(actualCrc) }
       _ <- DecodingContext.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc))
     } yield Some(ext) -> data
 
     def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {
-      data <- DecodingContext(fixedSizeBytes(header.length, c.codec(header)))
+      data <- DecodingContext(fixedSizeBytes(header.length.toLong, c.codec(header)))
     } yield None -> data
 
     for {
@@ -107,7 +107,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
       payloadUnitStart match {
         case None => go(state)
         case Some(start) =>
-          val bits = payload.drop(start * 8)
+          val bits = payload.drop(start * 8L)
           if (bits.size < 32) {
             go(state + (pid -> AwaitingSectionHeader(bits)))
           } else {
@@ -128,7 +128,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
       } else {
         decodeSection(header)(bitsPostHeader) match {
           case Attempt.Failure(err) =>
-            val rest = bitsPostHeader.drop(neededBits)
+            val rest = bitsPostHeader.drop(neededBits.toLong)
             Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ potentiallyNextSection(state, pid, rest)
           case Attempt.Successful(DecodeResult(section, rest)) =>
             Process.emit(pidSpecificSection(pid, section)) ++ potentiallyNextSection(state, pid, rest)
