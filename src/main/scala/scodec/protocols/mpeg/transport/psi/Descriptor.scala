@@ -129,7 +129,6 @@ object DataStreamAlignmentDescriptor {
   }.as[DataStreamAlignmentDescriptor]
 }
 
-// tODO 4-5 seconds
 case class TargetBackgroundGridDescriptor(length: Int, horizontalSize: Int, verticalSize: Int, aspectRatioInformation: Int) extends TransportStreamDescriptor with ProgramStreamDescriptor
 object TargetBackgroundGridDescriptor {
   implicit val codec: Codec[TargetBackgroundGridDescriptor] = {
