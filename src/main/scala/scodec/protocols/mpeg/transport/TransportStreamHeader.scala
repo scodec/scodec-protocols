@@ -1,7 +1,6 @@
 package scodec.protocols.mpeg
 package transport
 
-import scalaz.std.AllInstances._
 import scodec.Codec
 import scodec.codecs._
 

@@ -3,9 +3,7 @@ package scodec.protocols
 import scala.concurrent.duration._
 import scalaz.\/
 import \/.{ left, right }
-import scalaz.std.AllInstances._
 import scalaz.stream._
-import scodec.bits._
 import org.joda.time.DateTime
 
 class TimeSeriesTest extends ProtocolsSpec {
@@ -13,7 +11,7 @@ class TimeSeriesTest extends ProtocolsSpec {
   "the TimeSeries type" should {
 
     "interpolating time ticks in a timestamped stream" in {
-      val events = Process.range(1, 4) map { _ * 1000 } map { x => TimeStamped(new DateTime(x), x) }
+      val events = Process.range(1, 4) map { _ * 1000L } map { x => TimeStamped(new DateTime(x), x) }
       val withTicksDefault = events.pipe(TimeSeries.interpolateTicks()).toList
       withTicksDefault shouldBe List(
         TimeStamped(new DateTime(1000), right(1000)),

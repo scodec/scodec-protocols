@@ -5,7 +5,6 @@ import scala.concurrent.duration._
 import scalaz.{ \/, \/-, -\/ }
 import \/.{ left, right }
 import scalaz.concurrent.{ Strategy, Task }
-import scalaz.syntax.monoid._
 import scalaz.stream._
 import Process._
 

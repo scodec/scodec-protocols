@@ -51,13 +51,14 @@ object SimpleHeader {
         for {
           encoded <- componentCodec.encode(5 :: totalLength :: header.id :: header.ttl :: header.protocol :: BitVector.low(16) :: header.sourceIp :: header.destinationIp :: HNil)
           chksum = checksum(encoded)
-        } yield encoded.patch(16 + 16 + 16, chksum)
+        } yield encoded.patch(16L + 16L + 16L, chksum)
       }
 
       def decode(bits: BitVector) = {
         componentCodec.decode(bits) map { _ map {
-          case _ :: totalLength :: id :: ttl :: proto :: chksum :: srcIp :: dstIp :: HNil =>
-            SimpleHeader(totalLength - 20, id, ttl, proto, srcIp, dstIp)
+          h =>
+            val t = h.tupled
+            SimpleHeader(t._2 - 20, t._3, t._4, t._5, t._7, t._8)
         }}
       }
     }

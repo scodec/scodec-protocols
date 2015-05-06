@@ -4,7 +4,6 @@ package transport
 package psi
 
 import scalaz.std.AllInstances._
-import scalaz.syntax.id._
 import scalaz.syntax.foldable._
 
 import scodec.bits._
@@ -30,7 +29,7 @@ class PacketTest extends ProtocolsSpec {
 
       packets.zipWithIndex.foreach { case (packet, idx) =>
         val payloadOffset = if (idx == 0) 0 else 10 * ((idx * 183) / 10 + 1) - (idx * 183)
-        val offset = 183 * 8 * idx
+        val offset = 183L * 8 * idx
         packets(idx) shouldBe Packet.payload(Pid(0), ContinuityCounter(idx), Some(payloadOffset), data.drop(offset).take(183 * 8))
       }
     }

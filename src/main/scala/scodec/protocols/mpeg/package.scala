@@ -6,7 +6,7 @@ import scodec.codecs._
 
 package object mpeg {
 
-  def reserved(bits: Int): Codec[Unit] = constantLenient(BitVector.high(bits))
+  def reserved(bits: Int): Codec[Unit] = constantLenient(BitVector.high(bits.toLong))
 
   val crc32mpeg: BitVector => BitVector =
     crc(hex"04c11db7".bits, BitVector.high(32), false, false, BitVector.low(32))

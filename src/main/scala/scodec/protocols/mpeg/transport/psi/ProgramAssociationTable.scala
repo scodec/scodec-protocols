@@ -8,10 +8,9 @@ import scalaz.std.AllInstances._
 import scalaz.syntax.all._
 import scalaz.syntax.std.option._
 
-import scalaz.stream.{ Process, Process1 }
+import scalaz.stream.Process
 
 import scodec.Codec
-import scodec.bits._
 import scodec.codecs._
 
 case class ProgramAssociationTable(

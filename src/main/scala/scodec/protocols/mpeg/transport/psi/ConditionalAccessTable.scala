@@ -10,7 +10,6 @@ import scalaz.syntax.std.option._
 import scodec.Codec
 import scodec.bits._
 import scodec.codecs._
-import shapeless._
 
 case class ConditionalAccessTable(
   version: Int,
@@ -36,7 +35,7 @@ object ConditionalAccessTable {
   }
 
   private def groupBasedOnSize(sections: Vector[ConditionalAccessDescriptor]): Vector[Vector[ConditionalAccessDescriptor]] = {
-    val MaxBitsLeft = (1024 - 12) * 8
+    val MaxBitsLeft = (1024 - 12) * 8L
     def sizeOf(c: ConditionalAccessDescriptor): Long = (6 * 8) + c.privateData.size
     @annotation.tailrec
     def go(remaining: Vector[ConditionalAccessDescriptor], cur: Vector[ConditionalAccessDescriptor], bitsLeft: Long, acc: Vector[Vector[ConditionalAccessDescriptor]]): Vector[Vector[ConditionalAccessDescriptor]] = {

@@ -2,7 +2,6 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.std.AllInstances._
 import scodec.Codec
 import scodec.bits.BitVector
 import scodec.codecs._

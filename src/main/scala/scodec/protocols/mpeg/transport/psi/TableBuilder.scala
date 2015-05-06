@@ -22,7 +22,7 @@ class TableBuilder private (cases: Map[Int, TableSupport[_]]) {
         case None => Process.halt
         case Some(ts) =>
           ts.toTable(gs) match {
-            case \/-(table: Table) => Process.emit(right(table))
+            case \/-(table) => Process.emit(right(table.asInstanceOf[Table]))
             case -\/(err) => Process.emit(left(TableBuildingError(gs.tableId, err)))
           }
       }

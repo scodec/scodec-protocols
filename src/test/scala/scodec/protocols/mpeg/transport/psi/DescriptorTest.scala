@@ -20,7 +20,7 @@ class DescriptorTest extends ProtocolsSpec {
       }
     }
   }
-  private def roundtrip[A](codec: Codec[A], value: A) {
+  private def roundtrip[A](codec: Codec[A], value: A): Unit = {
     val encoded = codec.encode(value)
     encoded shouldBe 'successful
     val Attempt.Successful(DecodeResult(decoded, remainder)) = codec.decode(encoded.require)
