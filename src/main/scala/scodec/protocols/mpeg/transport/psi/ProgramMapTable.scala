@@ -81,7 +81,7 @@ object ProgramMapSection {
   private val fragmentCodec: Codec[Fragment] = {
     def pid: Codec[Pid] = reserved(3) ~> Codec[Pid]
     def descriptor: Codec[Vector[Descriptor]] =
-      reserved(4) ~> variableSizeBytes(uint(12), vector(Codec[Descriptor]))
+      reserved(4) ~> variableSizeBytes(uint(12), vector(Descriptor.codec))
     def programMapRecord: Codec[ProgramMapRecord] =
       (("pid" | pid) :: ("es_descriptors" | descriptor)).as[ProgramMapRecord]
 
