@@ -16,6 +16,8 @@ object PcapMpegExample extends App {
   case class IpAndPort(address: ip.v4.Address, port: ip.Port)
   case class CapturedPacket(source: IpAndPort, destination: IpAndPort, packet: mpeg.transport.Packet)
 
+  def mpegPcapChannel: java.nio.channels.FileChannel = ???
+
   val decoder: StreamDecoder[TimeStamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF(chunkSize = 256) {
     case LinkType.Ethernet =>
       for {
@@ -31,5 +33,5 @@ object PcapMpegExample extends App {
       } yield packets
   }
 
-  decoder.decodeMmap(ExampleData.mpegPcapChannel).runLog.run.foreach(println)
+  decoder.decodeMmap(mpegPcapChannel).runLog.run.foreach(println)
 }
