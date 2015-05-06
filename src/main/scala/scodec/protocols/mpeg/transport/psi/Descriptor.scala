@@ -6,7 +6,7 @@ import scodec._
 import scodec.bits._
 import scodec.codecs._
 
-sealed trait KnownDescriptor
+trait KnownDescriptor
 
 sealed trait TransportStreamDescriptor extends KnownDescriptor
 sealed trait ProgramStreamDescriptor extends KnownDescriptor
