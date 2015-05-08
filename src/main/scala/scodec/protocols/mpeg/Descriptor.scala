@@ -337,51 +337,39 @@ object UnknownDescriptor {
 object Descriptor {
   type Descriptor = Either[UnknownDescriptor, KnownDescriptor]
 
-  def frame[A](c: Codec[A]): Codec[A] = variableSizeBytes(uint8, c)
-
   // Using typecase instead of implicit discriminators per type for fast compilation
   val knownCodec: Codec[KnownDescriptor] = discriminated[KnownDescriptor].by(uint8)
-    .typecase(2, frame(VideoStreamDescriptor.codec))
-    .typecase(3, frame(AudioStreamDescriptor.codec))
-    .typecase(4, frame(HierarchyDescriptor.codec))
-    .typecase(5, frame(RegistrationDescriptor.codec))
-    .typecase(6, frame(DataStreamAlignmentDescriptor.codec))
-    .typecase(7, frame(TargetBackgroundGridDescriptor.codec))
-    .typecase(8, frame(VideoWindowDescriptor.codec))
-    .typecase(9, frame(CADescriptor.codec))
-    .typecase(10, frame(Iso639LanguageDescriptor.codec))
-    .typecase(11, frame(SystemClockDescriptor.codec))
-    .typecase(12, frame(MultiplexBufferUtilizationDescriptor.codec))
-    .typecase(13, frame(CopyrightDescriptor.codec))
-    .typecase(14, frame(MaximumBitrateDescriptor.codec))
-    .typecase(15, frame(PrivateDataIndicatorDescriptor.codec))
-    .typecase(16, frame(SmoothingBufferDescriptor.codec))
-    .typecase(17, frame(StdDescriptor.codec))
-    .typecase(18, frame(IbpDescriptor.codec))
-    .typecase(27, frame(Mpeg4VideoDescriptor.codec))
-    .typecase(28, frame(Mpeg4AudioDescriptor.codec))
-    .typecase(29, frame(IodDescriptor.codec))
-    .typecase(30, frame(SlDescriptor.codec))
-    .typecase(31, frame(FmcDescriptor.codec))
-    .typecase(32, frame(ExternalEsIdDescriptor.codec))
-    .typecase(33, frame(MuxCodeDescriptor.codec))
-    .typecase(34, frame(FmxBufferSizeDescriptor.codec))
-    .typecase(35, frame(MultiplexBufferDescriptor.codec))
+    .typecase(2, VideoStreamDescriptor.codec)
+    .typecase(3, AudioStreamDescriptor.codec)
+    .typecase(4, HierarchyDescriptor.codec)
+    .typecase(5, RegistrationDescriptor.codec)
+    .typecase(6, DataStreamAlignmentDescriptor.codec)
+    .typecase(7, TargetBackgroundGridDescriptor.codec)
+    .typecase(8, VideoWindowDescriptor.codec)
+    .typecase(9, CADescriptor.codec)
+    .typecase(10, Iso639LanguageDescriptor.codec)
+    .typecase(11, SystemClockDescriptor.codec)
+    .typecase(12, MultiplexBufferUtilizationDescriptor.codec)
+    .typecase(13, CopyrightDescriptor.codec)
+    .typecase(14, MaximumBitrateDescriptor.codec)
+    .typecase(15, PrivateDataIndicatorDescriptor.codec)
+    .typecase(16, SmoothingBufferDescriptor.codec)
+    .typecase(17, StdDescriptor.codec)
+    .typecase(18, IbpDescriptor.codec)
+    .typecase(27, Mpeg4VideoDescriptor.codec)
+    .typecase(28, Mpeg4AudioDescriptor.codec)
+    .typecase(29, IodDescriptor.codec)
+    .typecase(30, SlDescriptor.codec)
+    .typecase(31, FmcDescriptor.codec)
+    .typecase(32, ExternalEsIdDescriptor.codec)
+    .typecase(33, MuxCodeDescriptor.codec)
+    .typecase(34, FmxBufferSizeDescriptor.codec)
+    .typecase(35, MultiplexBufferDescriptor.codec)
+    .framing(new CodecTransformation {
+      def apply[X](c: Codec[X]) = variableSizeBytes(uint8, c)
+    })
 
-  val codec: Codec[Descriptor] = discriminatorFallbackCodec(UnknownDescriptor.codec, knownCodec)
-
-
-  private def discriminatorFallbackCodec[U, K](unknownCodec: Codec[U], knownCodec: Codec[K]): Codec[Either[U, K]] =
-    new Codec[Either[U, K]] {
-      def encode(value: Either[U, K]): Attempt[BitVector] = value.fold(unknown => unknownCodec.encode(unknown),
-        known => knownCodec.encode(known))
-      def decode(bits: BitVector): Attempt[DecodeResult[Either[U, K]]] =
-        knownCodec.decode(bits).fold({
-          case _: KnownDiscriminatorType[_]#UnknownDiscriminator => unknownCodec.decode(bits).map { _.map { d => Left(d) } }
-          case err => Attempt.failure(err)
-        }, result => Attempt.successful(result.map { k => Right(k) }))
-      def sizeBound: SizeBound = SizeBound.unknown
-    }
+  val codec: Codec[Descriptor] = discriminatorFallback(UnknownDescriptor.codec, knownCodec)
 
   def lengthCodec: Codec[Int] = ("descriptor_length" | uint8)
 }
