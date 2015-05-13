@@ -4,7 +4,6 @@ package psi
 
 import scalaz.{ \/, -\/, \/- }
 import \/.{ left, right }
-import scalaz.stream.{ Process1, Process }
 
 import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err, SizeBound }
 import scodec.bits._
@@ -49,7 +48,7 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
     section <- DecodingContext.fromFunction(decodeSection(header))
   } yield section).decode(bits)
 
-  private def decodeSection(header: SectionHeader)(bits: BitVector): Attempt[DecodeResult[Section]] = {
+  def decodeSection(header: SectionHeader)(bits: BitVector): Attempt[DecodeResult[Section]] = {
 
     val c = cases.getOrElse(header.tableId, unknownSectionCase(header.tableId).asInstanceOf[Case[Any, Section]])
 
@@ -81,94 +80,6 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
       section <- c.toSection(header.privateBits, ext, data)
      } yield DecodeResult(section, remainder)
   }
-
-  /**
-   * Stream transducer that converts packets in to sections.
-   *
-   * The packets may span PID values. De-packetization is performed on each PID and as whole sections are received,
-   * reassembled sections are emitted.
-   *
-   * Errors encountered while depacketizing are emitted.
-   *
-   * Upon noticing a PID discontinuity, an error is emitted and PID decoding state is discarded, resulting in any in-progress
-   * section decoding to be lost for that PID.
-   */
-  def depacketize: Process1[Packet, PidStamped[DepacketizationError \/ Section]] = {
-
-    type Step = Process1[PidStamped[DepacketizationError.Discontinuity] \/ Packet, PidStamped[DepacketizationError \/ Section]]
-
-    def pidSpecificErr(pid: Pid, e: DepacketizationError): PidStamped[DepacketizationError \/ Section] =
-      PidStamped(pid, left(e))
-
-    def pidSpecificSection(pid: Pid, s: Section): PidStamped[DepacketizationError \/ Section] =
-      PidStamped(pid, right(s))
-
-    def nextSection(state: Map[Pid, SectionDecodeState], pid: Pid, payloadUnitStart: Option[Int], payload: BitVector): Step = {
-      payloadUnitStart match {
-        case None => go(state)
-        case Some(start) =>
-          val bits = payload.drop(start * 8L)
-          if (bits.size < 32) {
-            go(state + (pid -> AwaitingSectionHeader(bits)))
-          } else {
-            Codec[SectionHeader].decode(bits) match {
-              case Attempt.Failure(err) =>
-                Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ go(state - pid)
-              case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
-                sectionBody(state, pid, header, bitsPostHeader)
-            }
-          }
-      }
-    }
-
-    def sectionBody(state: Map[Pid, SectionDecodeState], pid: Pid, header: SectionHeader, bitsPostHeader: BitVector): Step = {
-      val neededBits = header.length * 8
-      if (bitsPostHeader.size < neededBits) {
-        go(state + (pid -> AwaitingRest(header, bitsPostHeader)))
-      } else {
-        decodeSection(header)(bitsPostHeader) match {
-          case Attempt.Failure(err) =>
-            val rest = bitsPostHeader.drop(neededBits.toLong)
-            Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ potentiallyNextSection(state, pid, rest)
-          case Attempt.Successful(DecodeResult(section, rest)) =>
-            Process.emit(pidSpecificSection(pid, section)) ++ potentiallyNextSection(state, pid, rest)
-        }
-      }
-    }
-
-    def potentiallyNextSection(state: Map[Pid, SectionDecodeState], pid: Pid, payload: BitVector): Step = {
-      // Peek at table_id -- if we see 0xff, then there are no further sections in this packet
-      if (payload.size >= 8 && payload.take(8) != BitVector.high(8))
-        nextSection(state - pid, pid, Some(0), payload)
-      else go(state - pid)
-    }
-
-    def go(state: Map[Pid, SectionDecodeState]): Step =
-      Process.await1[PidStamped[DepacketizationError.Discontinuity] \/ Packet].flatMap {
-        case -\/(discontinuity) =>
-          Process.emit(pidSpecificErr(discontinuity.pid, discontinuity.value)) ++ go(state - discontinuity.pid)
-
-        case \/-(packet) =>
-          val pid = packet.header.pid
-          packet.payload match {
-            case None => go(state)
-            case Some(payload) =>
-              state.get(packet.header.pid) match {
-                case None =>
-                  nextSection(state, packet.header.pid, packet.payloadUnitStart, payload)
-                case Some(AwaitingSectionHeader(acc)) =>
-                  nextSection(state, packet.header.pid, Some(0), acc ++ payload)
-                case Some(AwaitingRest(header, acc)) =>
-                  sectionBody(state, packet.header.pid, header, acc ++ payload)
-              }
-          }
-      }
-
-    Packet.validateContinuity pipe go(Map.empty)
-  }
-
-  /** Provides a stream decoder that decodes a bitstream of 188 byte MPEG packets in to a stream of sections. */
-  def packetStreamDecoder: StreamDecoder[PidStamped[DepacketizationError \/ Section]] = decodeMany[Packet] pipe depacketize
 }
 
 object SectionCodec {
@@ -183,14 +94,14 @@ object SectionCodec {
     supporting[ProgramMapSection].
     supporting[ConditionalAccessSection]
 
+  sealed trait UnknownSection extends Section
+  case class UnknownNonExtendedSection(tableId: Int, privateBits: BitVector, data: ByteVector) extends UnknownSection
+  case class UnknownExtendedSection(tableId: Int, privateBits: BitVector, extension: SectionExtension, data: ByteVector) extends UnknownSection with ExtendedSection
+
   private case class Case[A, B <: Section](
     codec: SectionHeader => Codec[A],
     toSection: (BitVector, Option[SectionExtension], A) => Attempt[B],
     fromSection: B => (BitVector, Option[SectionExtension], A))
-
-  sealed trait UnknownSection extends Section
-  case class UnknownNonExtendedSection(tableId: Int, privateBits: BitVector, data: ByteVector) extends UnknownSection
-  case class UnknownExtendedSection(tableId: Int, privateBits: BitVector, extension: SectionExtension, data: ByteVector) extends UnknownSection with ExtendedSection
 
   private def unknownSectionCase(tableId: Int): Case[BitVector, UnknownSection] = Case(
     hdr => bits,
@@ -202,8 +113,4 @@ object SectionCodec {
       case u: UnknownExtendedSection => (u.privateBits, Some(u.extension), u.data.bits)
       case u: UnknownNonExtendedSection => (u.privateBits, None, u.data.bits)
     })
-
-  private sealed trait SectionDecodeState
-  private case class AwaitingSectionHeader(acc: BitVector) extends SectionDecodeState
-  private case class AwaitingRest(header: SectionHeader, acc: BitVector) extends SectionDecodeState
 }

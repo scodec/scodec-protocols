@@ -23,7 +23,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), pasEnc)
 
-        val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
+        val p = Process.emit(packet).toSource pipe Depacketization.depacketize(sectionCodec)
         p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
       }
 
@@ -35,7 +35,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val packets = Packet.packetize(Pid(0), ContinuityCounter(0), pasEnc)
 
-        val p = Process.emitAll(packets).toSource pipe sectionCodec.depacketize
+        val p = Process.emitAll(packets).toSource pipe Depacketization.depacketize(sectionCodec)
         p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
       }
 
@@ -48,7 +48,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val packets = Packet.packetize(Pid(0), ContinuityCounter(1), pasEnc)
         val withDiscontinuity = packets.updated(0, packets.head.copy(header = packets.head.header.copy(continuityCounter = ContinuityCounter(15))))
 
-        val p = Process.emitAll(withDiscontinuity).toSource pipe sectionCodec.depacketize
+        val p = Process.emitAll(withDiscontinuity).toSource pipe Depacketization.depacketize(sectionCodec)
         p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2)))))
       }
 
@@ -66,7 +66,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val ss255 = ss0.update(indexOfInt, 255.toByte)
 
         val packets = Packet.packetizeMany(Pid(0), ContinuityCounter(0), ss255.bits +: encodedSections)
-        val p = Process.emitAll(packets).toSource pipe sc.depacketize
+        val p = Process.emitAll(packets).toSource pipe Depacketization.depacketize(sc)
 
         p.runLog.run shouldBe (
           PidStamped(Pid(0), left(DepacketizationError.Decoding(Err("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)")))) +:
@@ -79,7 +79,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
-        val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
+        val p = Process.emit(packet).toSource pipe Depacketization.depacketize(sectionCodec)
         p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Decoding(Err("CRC mismatch: calculated 18564404 does not equal -11537665")))))
 
       }
@@ -90,7 +90,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
-        val p = Process.emit(packet).toSource pipe sectionCodec.depacketize
+        val p = Process.emit(packet).toSource pipe Depacketization.depacketize(sectionCodec)
         p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
 
       }

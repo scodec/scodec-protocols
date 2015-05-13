@@ -4,7 +4,7 @@ package transport
 package psi
 
 import scalaz.{ \/, \/-, -\/ }
-import \/.right
+import \/.{ left, right }
 import scalaz.stream._
 
 import psi.{ Table => TableMessage }
@@ -12,10 +12,12 @@ import psi.{ Table => TableMessage }
 abstract class TransportStreamEvent
 
 object TransportStreamEvent {
+  case class Pes(pid: Pid, pes: PesPacket) extends TransportStreamEvent
   case class Table(pid: Pid, table: TableMessage) extends TransportStreamEvent
   case class Metadata[A](pid: Option[Pid], metadata: A) extends TransportStreamEvent
   case class Error(pid: Pid, err: MpegError) extends TransportStreamEvent
 
+  def pes(pid: Pid, pes: PesPacket): TransportStreamEvent = Pes(pid, pes)
   def table(pid: Pid, table: TableMessage): TransportStreamEvent = Table(pid, table)
   def metadata[A](md: A): TransportStreamEvent = Metadata(None, md)
   def metadata[A](pid: Pid, md: A): TransportStreamEvent = Metadata(Some(pid), md)
@@ -25,7 +27,6 @@ object TransportStreamEvent {
     group: Process1[Section, GroupingError \/ GroupedSections], tableBuilder: TableBuilder
   ): Process1[PidStamped[MpegError \/ Section], TransportStreamEvent] = {
     type SectionsToTables = Process1[PidStamped[MpegError \/ Section], PidStamped[MpegError \/ TableMessage]]
-    type P = Process1[PidStamped[MpegError \/ Section], PidStamped[MpegError \/ (TransportStreamIndex \/ TableMessage)]]
     import MpegError._
 
     def newSectionsToTablesForPid: SectionsToTables =
@@ -57,7 +58,20 @@ object TransportStreamEvent {
     tableBuilder: TableBuilder,
     group: Process1[Section, GroupingError \/ GroupedSections] = GroupedSections.group
   ): Process1[Packet, TransportStreamEvent] = {
-    sectionCodec.depacketize.pipe(sectionsToTables(group, tableBuilder))
+    val depacketized: Process1[Packet, PidStamped[DepacketizationError \/ Depacketization.Result]] =
+      Depacketization.depacketize(sectionCodec)
+    depacketized pipe process1ext.conditionallyFeed[
+      PidStamped[MpegError \/ Section],
+      TransportStreamEvent,
+      PidStamped[DepacketizationError \/ Depacketization.Result]
+    ](sectionsToTables(group, tableBuilder), {
+      case PidStamped(pid, \/-(Depacketization.SectionResult(section))) =>
+        left(PidStamped(pid, right(section)))
+      case PidStamped(pid, \/-(Depacketization.PesPacketResult(p))) =>
+        right(pes(pid, p))
+      case PidStamped(pid, -\/(e)) =>
+        left(PidStamped(pid, left(e)))
+    })
   }
 
   def fromSectionStream(
