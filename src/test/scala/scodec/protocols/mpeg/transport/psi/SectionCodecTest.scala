@@ -23,8 +23,8 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), pasEnc)
 
-        val p = Process.emit(packet).toSource pipe Depacketization.depacketize(sectionCodec)
-        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
+        val p = Process.emit(packet).toSource pipe Demultiplexer.demultiplex(sectionCodec)
+        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(Demultiplexer.SectionResult(s))))
       }
 
       "handles case where section starts at beginning of packet and spans multiple packets" in {
@@ -35,8 +35,8 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val packets = Packet.packetize(Pid(0), ContinuityCounter(0), pasEnc)
 
-        val p = Process.emitAll(packets).toSource pipe Depacketization.depacketize(sectionCodec)
-        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
+        val p = Process.emitAll(packets).toSource pipe Demultiplexer.demultiplex(sectionCodec)
+        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(Demultiplexer.SectionResult(s))))
       }
 
       "checks packet continuity" in {
@@ -48,8 +48,8 @@ class SectionCodecTest extends ProtocolsSpec {
         val packets = Packet.packetize(Pid(0), ContinuityCounter(1), pasEnc)
         val withDiscontinuity = packets.updated(0, packets.head.copy(header = packets.head.header.copy(continuityCounter = ContinuityCounter(15))))
 
-        val p = Process.emitAll(withDiscontinuity).toSource pipe Depacketization.depacketize(sectionCodec)
-        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2)))))
+        val p = Process.emitAll(withDiscontinuity).toSource pipe Demultiplexer.demultiplex(sectionCodec)
+        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DemultiplexerError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2)))))
       }
 
       "upon decoding failure of a section, remaining sections in packet are decoded" in {
@@ -66,11 +66,11 @@ class SectionCodecTest extends ProtocolsSpec {
         val ss255 = ss0.update(indexOfInt, 255.toByte)
 
         val packets = Packet.packetizeMany(Pid(0), ContinuityCounter(0), ss255.bits +: encodedSections)
-        val p = Process.emitAll(packets).toSource pipe Depacketization.depacketize(sc)
+        val p = Process.emitAll(packets).toSource pipe Demultiplexer.demultiplex(sc)
 
         p.runLog.run shouldBe (
-          PidStamped(Pid(0), left(DepacketizationError.Decoding(Err("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)")))) +:
-          sections.map { x => PidStamped(Pid(0), right(x)) }
+          PidStamped(Pid(0), left(DemultiplexerError.Decoding(Err("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)")))) +:
+          sections.map { x => PidStamped(Pid(0), right(Demultiplexer.SectionResult(x))) }
         )
       }
 
@@ -79,8 +79,8 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
-        val p = Process.emit(packet).toSource pipe Depacketization.depacketize(sectionCodec)
-        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DepacketizationError.Decoding(Err("CRC mismatch: calculated 18564404 does not equal -11537665")))))
+        val p = Process.emit(packet).toSource pipe Demultiplexer.demultiplex(sectionCodec)
+        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DemultiplexerError.Decoding(Err("CRC mismatch: calculated 18564404 does not equal -11537665")))))
 
       }
 
@@ -90,8 +90,8 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
-        val p = Process.emit(packet).toSource pipe Depacketization.depacketize(sectionCodec)
-        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(s)))
+        val p = Process.emit(packet).toSource pipe Demultiplexer.demultiplex(sectionCodec)
+        p.runLog.run shouldBe IndexedSeq(pas).map(s => PidStamped(Pid(0), right(Demultiplexer.SectionResult(s))))
 
       }
     }

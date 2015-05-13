@@ -58,16 +58,16 @@ object TransportStreamEvent {
     tableBuilder: TableBuilder,
     group: Process1[Section, GroupingError \/ GroupedSections] = GroupedSections.group
   ): Process1[Packet, TransportStreamEvent] = {
-    val depacketized: Process1[Packet, PidStamped[DepacketizationError \/ Depacketization.Result]] =
-      Depacketization.depacketize(sectionCodec)
-    depacketized pipe process1ext.conditionallyFeed[
+    val demuxed: Process1[Packet, PidStamped[DemultiplexerError \/ Demultiplexer.Result]] =
+      Demultiplexer.demultiplex(sectionCodec)
+    demuxed pipe process1ext.conditionallyFeed[
       PidStamped[MpegError \/ Section],
       TransportStreamEvent,
-      PidStamped[DepacketizationError \/ Depacketization.Result]
+      PidStamped[DemultiplexerError \/ Demultiplexer.Result]
     ](sectionsToTables(group, tableBuilder), {
-      case PidStamped(pid, \/-(Depacketization.SectionResult(section))) =>
+      case PidStamped(pid, \/-(Demultiplexer.SectionResult(section))) =>
         left(PidStamped(pid, right(section)))
-      case PidStamped(pid, \/-(Depacketization.PesPacketResult(p))) =>
+      case PidStamped(pid, \/-(Demultiplexer.PesPacketResult(p))) =>
         right(pes(pid, p))
       case PidStamped(pid, -\/(e)) =>
         left(PidStamped(pid, left(e)))

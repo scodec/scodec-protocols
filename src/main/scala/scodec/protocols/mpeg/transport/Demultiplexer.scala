@@ -12,7 +12,7 @@ import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 import psi.{ Section, SectionHeader, SectionCodec }
 
 /** Supports depacketization of an MPEG transport stream, represented as a stream of `Packet`s. */
-object Depacketization {
+object Demultiplexer {
 
   sealed trait Result
   case class SectionResult(section: Section) extends Result
@@ -30,35 +30,35 @@ object Depacketization {
    * reassembled messages are emitted.
    *
    * PES packets emitted by this method never include parsed headers -- that is, every emitted PES packet is of
-   * type `PesPacket.WithoutHeader`. To get PES packets with parsed headers, use `depacketizeWithPesHeaders`.
+   * type `PesPacket.WithoutHeader`. To get PES packets with parsed headers, use `demultiplexWithPesHeaders`.
    *
    * Errors encountered while depacketizing are emitted.
    *
    * Upon noticing a PID discontinuity, an error is emitted and PID decoding state is discarded, resulting in any in-progress
    * section decoding to be lost for that PID.
    */
-  def depacketize(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DepacketizationError \/ Result]] =
-    depacketizeGeneral(sectionCodec.decodeSection(_)(_), (pph, b) => Attempt.successful(DecodeResult(PesPacket.WithoutHeader(pph.streamId, b), BitVector.empty)))
+  def demultiplex(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] =
+    demultiplexGeneral(sectionCodec.decodeSection(_)(_), (pph, b) => Attempt.successful(DecodeResult(PesPacket.WithoutHeader(pph.streamId, b), BitVector.empty)))
 
-  /** Variant of `depacketize` that parses PES packet headers. */
-  def depacketizeWithPesHeaders(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DepacketizationError \/ Result]] =
-    depacketizeGeneral(sectionCodec.decodeSection(_)(_), PesPacket.decode)
+  /** Variant of `demultiplex` that parses PES packet headers. */
+  def demultiplexWithPesHeaders(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] =
+    demultiplexGeneral(sectionCodec.decodeSection(_)(_), PesPacket.decode)
 
-  /** Generic variant of `depacketize` that allows section and PES decoding to be explicitly specified. */
-  def depacketizeGeneral(
+  /** Generic variant of `demultiplex` that allows section and PES decoding to be explicitly specified. */
+  def demultiplexGeneral(
     decodeSectionBody: (SectionHeader, BitVector) => Attempt[DecodeResult[Section]],
     decodePesBody: (PesPacketHeaderPrefix, BitVector) => Attempt[DecodeResult[PesPacket]]
-  ): Process1[Packet, PidStamped[DepacketizationError \/ Result]] = {
+  ): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] = {
 
-    type Step = Process1[PidStamped[DepacketizationError.Discontinuity] \/ Packet, PidStamped[DepacketizationError \/ Result]]
+    type Step = Process1[PidStamped[DemultiplexerError.Discontinuity] \/ Packet, PidStamped[DemultiplexerError \/ Result]]
 
-    def pidSpecificErr(pid: Pid, e: DepacketizationError): PidStamped[DepacketizationError \/ Result] =
+    def pidSpecificErr(pid: Pid, e: DemultiplexerError): PidStamped[DemultiplexerError \/ Result] =
       PidStamped(pid, left(e))
 
-    def pidSpecificSection(pid: Pid, s: Section): PidStamped[DepacketizationError \/ Result] =
+    def pidSpecificSection(pid: Pid, s: Section): PidStamped[DemultiplexerError \/ Result] =
       PidStamped(pid, right(SectionResult(s)))
 
-    def pidSpecificPesPacket(pid: Pid, pesPacket: PesPacket): PidStamped[DepacketizationError \/ Result] =
+    def pidSpecificPesPacket(pid: Pid, pesPacket: PesPacket): PidStamped[DemultiplexerError \/ Result] =
       PidStamped(pid, right(PesPacketResult(pesPacket)))
 
     def nextMessage(state: Map[Pid, DecodeState], pid: Pid, payloadUnitStart: Option[Int], payload: BitVector): Step = {
@@ -78,7 +78,7 @@ object Depacketization {
                   case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
                     pesBody(state, pid, header, bitsPostHeader, None)
                   case Attempt.Failure(err) =>
-                    Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ go(state - pid)
+                    Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ go(state - pid)
                 }
               }
             } else {
@@ -87,7 +87,7 @@ object Depacketization {
               } else {
                 Codec[SectionHeader].decode(bits) match {
                   case Attempt.Failure(err) =>
-                    Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ go(state - pid)
+                    Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ go(state - pid)
                   case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
                     sectionBody(state, pid, header, bitsPostHeader)
                 }
@@ -103,7 +103,7 @@ object Depacketization {
           case Attempt.Successful(DecodeResult(pesBody, rest)) =>
             Process.emit(pidSpecificPesPacket(pid, pesBody)) ++ go(state - pid)
           case Attempt.Failure(err) =>
-            Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ go(state - pid)
+            Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ go(state - pid)
         }
       }
 
@@ -132,7 +132,7 @@ object Depacketization {
         decodeSectionBody(header, bitsPostHeader) match {
           case Attempt.Failure(err) =>
             val rest = bitsPostHeader.drop(neededBits.toLong)
-            Process.emit(pidSpecificErr(pid, DepacketizationError.Decoding(err))) ++ potentiallyNextSection(state, pid, rest)
+            Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ potentiallyNextSection(state, pid, rest)
           case Attempt.Successful(DecodeResult(section, rest)) =>
             Process.emit(pidSpecificSection(pid, section)) ++ potentiallyNextSection(state, pid, rest)
         }
@@ -165,7 +165,7 @@ object Depacketization {
     }
 
     def go(state: Map[Pid, DecodeState]): Step =
-      Process.await1[PidStamped[DepacketizationError.Discontinuity] \/ Packet].flatMap {
+      Process.await1[PidStamped[DemultiplexerError.Discontinuity] \/ Packet].flatMap {
         case -\/(discontinuity) =>
           Process.emit(pidSpecificErr(discontinuity.pid, discontinuity.value)) ++ go(state - discontinuity.pid)
 
@@ -177,5 +177,5 @@ object Depacketization {
   }
 
   /** Provides a stream decoder that decodes a bitstream of 188 byte MPEG packets in to a stream of messages. */
-  def packetStreamDecoder(sectionCodec: SectionCodec): StreamDecoder[PidStamped[DepacketizationError \/ Result]] = decodeMany[Packet] pipe depacketize(sectionCodec)
+  def packetStreamDecoder(sectionCodec: SectionCodec): StreamDecoder[PidStamped[DemultiplexerError \/ Result]] = decodeMany[Packet] pipe demultiplex(sectionCodec)
 }
