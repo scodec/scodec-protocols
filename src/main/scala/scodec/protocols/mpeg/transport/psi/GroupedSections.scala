@@ -58,6 +58,9 @@ object GroupedSections {
     go(Map.empty)
   }
 
+  def noGrouping: Process1[Section, GroupingError \/ GroupedSections] =
+    process1.lift(s => right(GroupedSections(s.tableId, s.wrapNel)))
+
   /**
    * Groups sections in to groups.
    *
@@ -65,7 +68,7 @@ object GroupedSections {
    * Non-extended sections are emitted as singleton groups.
    */
   def group: Process1[Section, GroupingError \/ GroupedSections] = {
-    groupGeneral(process1.lift(s => right(GroupedSections(s.tableId, s.wrapNel))))
+    groupGeneral(noGrouping)
   }
 
   /**
@@ -75,12 +78,24 @@ object GroupedSections {
    * The specified `nonExtended` process is used to handle non-extended sections.
    */
   def groupGeneral(nonExtended: Process1[Section, GroupingError \/ GroupedSections]): Process1[Section, GroupingError \/ GroupedSections] = {
+    groupGeneralConditionally(nonExtended, _ => true)
+  }
+
+  /**
+   * Groups sections in to groups.
+   *
+   * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled if `true` is returned from the
+   * `groupExtended` function when applied with the section in question.
+   *
+   * The specified `nonExtended` process is used to handle non-extended sections.
+   */
+  def groupGeneralConditionally(nonExtended: Process1[Section, GroupingError \/ GroupedSections], groupExtended: ExtendedSection => Boolean = _ => true): Process1[Section, GroupingError \/ GroupedSections] = {
     def go(
       ext: Process1[ExtendedSection, GroupingError \/ GroupedSections],
       nonExt: Process1[Section, GroupingError \/ GroupedSections]
     ): Process1[Section, GroupingError \/ GroupedSections] = {
       Process.receive1Or[Section, GroupingError \/ GroupedSections](ext.disconnect(Cause.Kill) ++ nonExt.disconnect(Cause.Kill)) {
-        case s: ExtendedSection =>
+        case s: ExtendedSection if groupExtended(s) =>
           val (out, next) = process1.feed1(s)(ext).unemit
           Process.emitAll(out) ++ go(next, nonExt)
         case s: Section =>
