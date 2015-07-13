@@ -135,5 +135,15 @@ object TimeSeriesTransducer {
     }
     go(left, right)
   }
+
+  def drainRight[L, R]: TimeSeriesTransducer[L \/ R, L] = process1.collect {
+    case tick @ TimeStamped(ts, -\/(())) => tick.asInstanceOf[TimeSeriesValue[L]]
+    case TimeStamped(ts, \/-(-\/(l))) => TimeStamped(ts, \/-(l))
+  }
+
+  def drainLeft[L, R]: TimeSeriesTransducer[L \/ R, R] = process1.collect {
+    case tick @ TimeStamped(ts, -\/(())) => tick.asInstanceOf[TimeSeriesValue[R]]
+    case TimeStamped(ts, \/-(\/-(r))) => TimeStamped(ts, \/-(r))
+  }
 }
 
