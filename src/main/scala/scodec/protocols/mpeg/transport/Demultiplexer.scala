@@ -21,28 +21,16 @@ object Demultiplexer {
   case class SectionResult(section: Section) extends Result
   case class PesPacketResult(body: PesPacket) extends Result
 
-  /** Result of attempting to decode a message header. */
-  sealed trait DecodeDirective[+A]
-
-  object DecodeDirective {
-
-    /** Indication that there was not enough data to decode a header. */
-    case object NeedMoreDataToDecodeHeader extends DecodeDirective[Nothing]
-
-    /**
-     * Indication that a header was decoded successfully and there was enough information on how to decode the body of the message.
-     *
-     * Upon receiving a result of this type, the demultiplexer will accumulate the number of bits specified by `neededBits` if that value
-     * is defined. If `neededBits` is undefined, the demultiplexer will accumulate all payload bits until the start of the next message (as
-     * indicated by the payload unit start indicator). When accumulation has completed, the specified decoder will be invoked to decode
-     * a message. If there is a remainder from the result of decoding, it is passed to the `decodeRemainder` predicate to see if the
-     * remainder should be processed as another message or if it should be discarded.
-     */
-    case class DecodeBody[A](neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A], decodeRemainder: BitVector => Boolean) extends DecodeDirective[A]
-
-    /** Indication that an error occurred when decoding the header. */
-    case class ErrorDecodingHeader(err: Err) extends DecodeDirective[Nothing]
-  }
+  /**
+   * Indication that a header was decoded successfully and there was enough information on how to decode the body of the message.
+   *
+   * Upon receiving a result of this type, the demultiplexer will accumulate the number of bits specified by `neededBits` if that value
+   * is defined. If `neededBits` is undefined, the demultiplexer will accumulate all payload bits until the start of the next message (as
+   * indicated by the payload unit start indicator). When accumulation has completed, the specified decoder will be invoked to decode
+   * a message. If there is a remainder from the result of decoding, it is passed to the `decodeRemainder` predicate to see if the
+   * remainder should be processed as another message or if it should be discarded.
+   */
+  case class DecodeBody[A](neededBits: Option[Long], decoder: Decoder[A], decodeRemainder: BitVector => Boolean)
 
   private sealed trait DecodeState
   private object DecodeState {
@@ -91,32 +79,26 @@ object Demultiplexer {
     decodeSectionBody: SectionHeader => Decoder[Section],
     decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] = {
 
-    def decodeHeader(data: BitVector, startedAtOffsetZero: Boolean): DecodeDirective[Result] = {
+    def decodeHeader(data: BitVector, startedAtOffsetZero: Boolean): Attempt[DecodeResult[DecodeBody[Result]]] = {
       if (data.sizeLessThan(16)) {
-        DecodeDirective.NeedMoreDataToDecodeHeader
+        Attempt.failure(Err.InsufficientBits(16, data.size, Nil))
       } else {
         if (startedAtOffsetZero && data.take(16) == hex"0001".bits) {
           if (data.sizeLessThan(40)) {
-            DecodeDirective.NeedMoreDataToDecodeHeader
+            Attempt.failure(Err.InsufficientBits(40, data.size, Nil))
           } else {
-            Codec[PesPacketHeaderPrefix].decode(data.drop(16)) match {
-              case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
+            Codec[PesPacketHeaderPrefix].decode(data.drop(16)) map { _ map { header =>
                 val neededBits = if (header.length == 0) None else Some(header.length * 8L)
-                DecodeDirective.DecodeBody(neededBits, bitsPostHeader, decodePesBody(header).map(PesPacketResult.apply), rem => false)
-              case Attempt.Failure(err) =>
-                DecodeDirective.ErrorDecodingHeader(err)
-            }
+                DecodeBody(neededBits, decodePesBody(header).map(PesPacketResult.apply), rem => false)
+            }}
           }
         } else {
           if (data.sizeLessThan(32)) {
-            DecodeDirective.NeedMoreDataToDecodeHeader
+            Attempt.failure(Err.InsufficientBits(32, data.size, Nil))
           } else {
-            Codec[SectionHeader].decode(data) match {
-              case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
-                DecodeDirective.DecodeBody(Some(header.length * 8L), bitsPostHeader, decodeSectionBody(header).map(SectionResult.apply), rem => rem.size >= 8 && rem.take(8) != BitVector.high(8))
-              case Attempt.Failure(err) =>
-                DecodeDirective.ErrorDecodingHeader(err)
-            }
+            Codec[SectionHeader].decode(data) map { _ map { header =>
+              DecodeBody(Some(header.length * 8L), decodeSectionBody(header).map(SectionResult.apply), rem => rem.size >= 8 && rem.take(8) != BitVector.high(8))
+            }}
           }
         }
       }
@@ -133,10 +115,10 @@ object Demultiplexer {
    * In addition to the payload data, a flag is passed to `decodeHeader` -- true is passed when the payload data started at byte 0 of
    * the packet and false is passed when the payload data started later in the packet.
    *
-   * See the documentation on `DecodeDirective` for more information.
+   * See the documentation on `DecodeBody` for more information.
    */
   def demultiplexGeneral[Out](
-    decodeHeader: (BitVector, Boolean) => DecodeDirective[Out]
+    decodeHeader: (BitVector, Boolean) => Attempt[DecodeResult[DecodeBody[Out]]]
   ): Process1[Packet, PidStamped[DemultiplexerError \/ Out]] = {
 
     def processBody[A](awaitingBody: DecodeState.AwaitingBody[A], payloadUnitStartAfterData: Boolean): StepResult[Out] = {
@@ -147,7 +129,7 @@ object Demultiplexer {
       if (haveFullBody) {
         awaitingBody.decode match {
           case Attempt.Successful(DecodeResult(body, remainder)) =>
-            val decoded = StepResult.oneResult(None, body.asInstanceOf[Out]) // Safe cast b/c DecodeDirective must provide a Decoder[Out]
+            val decoded = StepResult.oneResult(None, body.asInstanceOf[Out]) // Safe cast b/c DecodeBody must provide a Decoder[Out]
             if (awaitingBody.processRemainder(remainder)) decoded ++ processHeader(remainder, false, payloadUnitStartAfterData)
             else decoded
           case Attempt.Failure(err) =>
@@ -164,16 +146,16 @@ object Demultiplexer {
 
     def processHeader(acc: BitVector, startedAtOffsetZero: Boolean, payloadUnitStartAfterData: Boolean): StepResult[Out] = {
       decodeHeader(acc, startedAtOffsetZero) match {
-        case DecodeDirective.NeedMoreDataToDecodeHeader =>
+        case Attempt.Failure(e: Err.InsufficientBits) =>
           StepResult.state(DecodeState.AwaitingHeader(acc, startedAtOffsetZero))
-        case DecodeDirective.DecodeBody(neededBits, bitsPostHeader, decoder, processRemainder) =>
+        case Attempt.Failure(e) =>
+          StepResult.oneError(None, DemultiplexerError.Decoding(e))
+        case Attempt.Successful(DecodeResult(DecodeBody(neededBits, decoder, processRemainder), bitsPostHeader)) =>
           val guardedDecoder = neededBits match {
             case None => decoder
             case Some(n) => fixedSizeBits(n, decoder.decodeOnly)
           }
           processBody(DecodeState.AwaitingBody(neededBits, bitsPostHeader, guardedDecoder, processRemainder), payloadUnitStartAfterData)
-        case DecodeDirective.ErrorDecodingHeader(err) =>
-          StepResult.oneError(None, DemultiplexerError.Decoding(err))
       }
     }
 
