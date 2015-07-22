@@ -135,8 +135,11 @@ object Demultiplexer {
           case Attempt.Failure(err) =>
             val failure = StepResult.oneError(None, DemultiplexerError.Decoding(err))
             awaitingBody.neededBits match {
+              case Some(n) =>
+                val remainder = awaitingBody.bitsPostHeader.drop(n.toLong)
+                if (awaitingBody.processRemainder(remainder)) failure ++ processHeader(remainder, false, payloadUnitStartAfterData)
+                else failure
               case None => failure
-              case Some(n) => failure ++ processHeader(awaitingBody.bitsPostHeader.drop(n.toLong), false, payloadUnitStartAfterData)
             }
         }
       } else {
@@ -181,7 +184,7 @@ object Demultiplexer {
             case None =>
               currentResult
             case Some(start) =>
-              val nextResult = processHeader(payload.drop(start.toLong), start == 0, false)
+              val nextResult = processHeader(payload.drop(start * 8L), start == 0, false)
               currentResult ++ nextResult
           }
       }
