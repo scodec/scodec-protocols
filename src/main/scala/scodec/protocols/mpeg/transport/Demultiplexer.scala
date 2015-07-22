@@ -41,7 +41,7 @@ object Demultiplexer {
     case class DecodeBody[A](neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A], decodeRemainder: BitVector => Boolean) extends DecodeDirective[A]
 
     /** Indication that an error occurred when decoding the header. */
-    case class ErrorDecodingHeader(err: DemultiplexerError) extends DecodeDirective[Nothing]
+    case class ErrorDecodingHeader(err: Err) extends DecodeDirective[Nothing]
   }
 
   private sealed trait DecodeState
@@ -104,7 +104,7 @@ object Demultiplexer {
                 val neededBits = if (header.length == 0) None else Some(header.length * 8L)
                 DecodeDirective.DecodeBody(neededBits, bitsPostHeader, decodePesBody(header).map(PesPacketResult.apply), rem => false)
               case Attempt.Failure(err) =>
-                DecodeDirective.ErrorDecodingHeader(DemultiplexerError.Decoding(err))
+                DecodeDirective.ErrorDecodingHeader(err)
             }
           }
         } else {
@@ -115,7 +115,7 @@ object Demultiplexer {
               case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
                 DecodeDirective.DecodeBody(Some(header.length * 8L), bitsPostHeader, decodeSectionBody(header).map(SectionResult.apply), rem => rem.size >= 8 && rem.take(8) != BitVector.high(8))
               case Attempt.Failure(err) =>
-                DecodeDirective.ErrorDecodingHeader(DemultiplexerError.Decoding(err))
+                DecodeDirective.ErrorDecodingHeader(err)
             }
           }
         }
@@ -173,7 +173,7 @@ object Demultiplexer {
           }
           processBody(DecodeState.AwaitingBody(neededBits, bitsPostHeader, guardedDecoder, processRemainder), payloadUnitStartAfterData)
         case DecodeDirective.ErrorDecodingHeader(err) =>
-          StepResult.oneError(None, err)
+          StepResult.oneError(None, DemultiplexerError.Decoding(err))
       }
     }
 
