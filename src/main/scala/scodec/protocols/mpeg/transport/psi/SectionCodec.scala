@@ -5,7 +5,7 @@ package psi
 import scalaz.{ \/, -\/, \/- }
 import \/.{ left, right }
 
-import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err, SizeBound }
+import scodec.{ Attempt, Codec, Decoder, DecodeResult, DecodingContext, Err, SizeBound }
 import scodec.bits._
 import scodec.codecs._
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
@@ -48,7 +48,10 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
     section <- DecodingContext.fromFunction(decodeSection(header))
   } yield section).decode(bits)
 
-  def decodeSection(header: SectionHeader)(bits: BitVector): Attempt[DecodeResult[Section]] = {
+  def decodeSection(header: SectionHeader)(bits: BitVector): Attempt[DecodeResult[Section]] =
+    decoder(header).decode(bits)
+
+  def decoder(header: SectionHeader): Decoder[Section] = Decoder { bits =>
 
     val c = cases.getOrElse(header.tableId, unknownSectionCase(header.tableId).asInstanceOf[Case[Any, Section]])
 

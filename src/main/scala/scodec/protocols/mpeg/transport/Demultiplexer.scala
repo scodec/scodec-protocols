@@ -6,10 +6,13 @@ import \/.{ left, right }
 import scalaz.stream.{ Process1, Process }
 
 import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err, SizeBound }
+import scodec.Decoder
 import scodec.bits._
+import scodec.codecs.fixedSizeBits
 import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
-import psi.{ Section, SectionHeader, SectionCodec }
+import scodec.protocols.mpeg._
+import scodec.protocols.mpeg.transport.psi.{ Section, SectionHeader, SectionCodec }
 
 /** Supports depacketization of an MPEG transport stream, represented as a stream of `Packet`s. */
 object Demultiplexer {
@@ -18,10 +21,49 @@ object Demultiplexer {
   case class SectionResult(section: Section) extends Result
   case class PesPacketResult(body: PesPacket) extends Result
 
+  /** Result of attempting to decode a message header. */
+  sealed trait DecodeDirective[+A]
+
+  object DecodeDirective {
+
+    /** Indication that there was not enough data to decode a header. */
+    case object NeedMoreDataToDecodeHeader extends DecodeDirective[Nothing]
+
+    /**
+     * Indication that a header was decoded successfully and there was enough information on how to decode the body of the message.
+     *
+     * Upon receiving a result of this type, the demultiplexer will accumulate the number of bits specified by `neededBits` if that value
+     * is defined. If `neededBits` is undefined, the demultiplexer will accumulate all payload bits until the start of the next message (as
+     * indicated by the payload unit start indicator). When accumulation has completed, the specified decoder will be invoked to decode
+     * a message. If there is a remainder from the result of decoding, it is passed to the `decodeRemainder` predicate to see if the
+     * remainder should be processed as another message or if it should be discarded.
+     */
+    case class DecodeBody[A](neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A], decodeRemainder: BitVector => Boolean) extends DecodeDirective[A]
+
+    /** Indication that an error occurred when decoding the header. */
+    case class ErrorDecodingHeader(err: DemultiplexerError) extends DecodeDirective[Nothing]
+  }
+
   private sealed trait DecodeState
-  private case class AwaitingHeader(acc: BitVector) extends DecodeState
-  private case class AwaitingSectionBody(header: SectionHeader, acc: BitVector) extends DecodeState
-  private case class AwaitingPesBody(header: PesPacketHeaderPrefix, acc: BitVector) extends DecodeState
+  private object DecodeState {
+
+    case class AwaitingHeader(acc: BitVector, startedAtOffsetZero: Boolean) extends DecodeState
+
+    case class AwaitingBody[A](neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A], processRemainder: BitVector => Boolean) extends DecodeState {
+      def decode: Attempt[DecodeResult[A]] = decoder.decode(bitsPostHeader)
+      def accumulate(data: BitVector): AwaitingBody[A] = copy(bitsPostHeader = bitsPostHeader ++ data)
+    }
+  }
+
+  private case class StepResult[+A](state: Option[DecodeState], output: Vector[DemultiplexerError \/ A]) {
+    def ++[AA >: A](that: StepResult[AA]): StepResult[AA] = StepResult(that.state, output ++ that.output)
+  }
+  private object StepResult {
+    def noOutput(state: Option[DecodeState]): StepResult[Nothing] = apply(state, Vector.empty)
+    def state(state: DecodeState): StepResult[Nothing] = StepResult(Some(state), Vector.empty)
+    def oneResult[A](state: Option[DecodeState], output: A): StepResult[A] = apply(state, Vector(\/.right(output)))
+    def oneError(state: Option[DecodeState], err: DemultiplexerError): StepResult[Nothing] = apply(state, Vector(\/.left(err)))
+  }
 
   /**
    * Stream transducer that converts packets in to sections and PES packets.
@@ -38,144 +80,144 @@ object Demultiplexer {
    * section decoding to be lost for that PID.
    */
   def demultiplex(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] =
-    demultiplexGeneral(sectionCodec.decodeSection(_)(_), (pph, b) => Attempt.successful(DecodeResult(PesPacket.WithoutHeader(pph.streamId, b), BitVector.empty)))
+    demultiplexSectionsAndPesPackets(sectionCodec.decoder, pph => Decoder(b => Attempt.successful(DecodeResult(PesPacket.WithoutHeader(pph.streamId, b), BitVector.empty))))
 
   /** Variant of `demultiplex` that parses PES packet headers. */
   def demultiplexWithPesHeaders(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] =
-    demultiplexGeneral(sectionCodec.decodeSection(_)(_), PesPacket.decode)
+    demultiplexSectionsAndPesPackets(sectionCodec.decoder, PesPacket.decoder)
 
-  /** Generic variant of `demultiplex` that allows section and PES decoding to be explicitly specified. */
-  def demultiplexGeneral(
-    decodeSectionBody: (SectionHeader, BitVector) => Attempt[DecodeResult[Section]],
-    decodePesBody: (PesPacketHeaderPrefix, BitVector) => Attempt[DecodeResult[PesPacket]]
-  ): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] = {
+  /** Variant of `demultiplex` that allows section and PES decoding to be explicitly specified. */
+  def demultiplexSectionsAndPesPackets(
+    decodeSectionBody: SectionHeader => Decoder[Section],
+    decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] = {
 
-    type Step = Process1[PidStamped[DemultiplexerError.Discontinuity] \/ Packet, PidStamped[DemultiplexerError \/ Result]]
-
-    def pidSpecificErr(pid: Pid, e: DemultiplexerError): PidStamped[DemultiplexerError \/ Result] =
-      PidStamped(pid, left(e))
-
-    def pidSpecificSection(pid: Pid, s: Section): PidStamped[DemultiplexerError \/ Result] =
-      PidStamped(pid, right(SectionResult(s)))
-
-    def pidSpecificPesPacket(pid: Pid, pesPacket: PesPacket): PidStamped[DemultiplexerError \/ Result] =
-      PidStamped(pid, right(PesPacketResult(pesPacket)))
-
-    def nextMessage(state: Map[Pid, DecodeState], pid: Pid, payloadUnitStart: Option[Int], payload: BitVector): Step = {
-      payloadUnitStart match {
-        case None => go(state)
-        case Some(start) =>
-          val bits = payload.drop(start * 8L)
-          if (bits.sizeLessThan(16)) {
-            go(state + (pid -> AwaitingHeader(bits)))
+    def decodeHeader(data: BitVector, startedAtOffsetZero: Boolean): DecodeDirective[Result] = {
+      if (data.sizeLessThan(16)) {
+        DecodeDirective.NeedMoreDataToDecodeHeader
+      } else {
+        if (startedAtOffsetZero && data.take(16) == hex"0001".bits) {
+          if (data.sizeLessThan(40)) {
+            DecodeDirective.NeedMoreDataToDecodeHeader
           } else {
-            // Check for PES start code prefix
-            if (start == 0 && bits.take(16) == hex"0001".bits) {
-              if (bits.sizeLessThan(40)) {
-                go(state + (pid -> AwaitingHeader(bits)))
-              } else {
-                Codec[PesPacketHeaderPrefix].decode(bits.drop(16)) match {
-                  case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
-                    pesBody(state, pid, header, bitsPostHeader, None)
-                  case Attempt.Failure(err) =>
-                    Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ go(state - pid)
-                }
-              }
-            } else {
-              if (bits.sizeLessThan(32)) {
-                go(state + (pid -> AwaitingHeader(bits)))
-              } else {
-                Codec[SectionHeader].decode(bits) match {
-                  case Attempt.Failure(err) =>
-                    Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ go(state - pid)
-                  case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
-                    sectionBody(state, pid, header, bitsPostHeader)
-                }
-              }
+            Codec[PesPacketHeaderPrefix].decode(data.drop(16)) match {
+              case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
+                val neededBits = if (header.length == 0) None else Some(header.length * 8L)
+                DecodeDirective.DecodeBody(neededBits, bitsPostHeader, decodePesBody(header).map(PesPacketResult.apply), rem => false)
+              case Attempt.Failure(err) =>
+                DecodeDirective.ErrorDecodingHeader(DemultiplexerError.Decoding(err))
             }
           }
-      }
-    }
-
-    def pesBody(state: Map[Pid, DecodeState], pid: Pid, header: PesPacketHeaderPrefix, bitsPostHeader: BitVector, packet: Option[Packet]): Step = {
-      def doDecodePesBody(pesBodyBits: BitVector): Step = {
-        decodePesBody(header, pesBodyBits) match {
-          case Attempt.Successful(DecodeResult(pesBody, rest)) =>
-            Process.emit(pidSpecificPesPacket(pid, pesBody)) ++ go(state - pid)
-          case Attempt.Failure(err) =>
-            Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ go(state - pid)
+        } else {
+          if (data.sizeLessThan(32)) {
+            DecodeDirective.NeedMoreDataToDecodeHeader
+          } else {
+            Codec[SectionHeader].decode(data) match {
+              case Attempt.Successful(DecodeResult(header, bitsPostHeader)) =>
+                DecodeDirective.DecodeBody(Some(header.length * 8L), bitsPostHeader, decodeSectionBody(header).map(SectionResult.apply), rem => rem.size >= 8 && rem.take(8) != BitVector.high(8))
+              case Attempt.Failure(err) =>
+                DecodeDirective.ErrorDecodingHeader(DemultiplexerError.Decoding(err))
+            }
+          }
         }
       }
+    }
+    demultiplexGeneral(decodeHeader)
+  }
 
-      // TODO if header.length is 0, must decode until next packet with payload start indicator
-      if (header.length == 0L) {
-        if (packet.map { _.payloadUnitStart.isDefined }.getOrElse(false)) {
-          doDecodePesBody(bitsPostHeader) ++ handlePacket(state - pid, packet.get)
-        } else {
-          go(state + (pid -> AwaitingPesBody(header, bitsPostHeader)))
+  /**
+   * Most general way to perform demultiplexing, allowing parsing of arbitrary headers and decoding of a specified output type.
+   *
+   * When processing the payload in a packet, the start of the payload along is passed to `decodeHeader`, which determines how to
+   * process the body of the message.
+   *
+   * In addition to the payload data, a flag is passed to `decodeHeader` -- true is passed when the payload data started at byte 0 of
+   * the packet and false is passed when the payload data started later in the packet.
+   *
+   * See the documentation on `DecodeDirective` for more information.
+   */
+  def demultiplexGeneral[Out](
+    decodeHeader: (BitVector, Boolean) => DecodeDirective[Out]
+  ): Process1[Packet, PidStamped[DemultiplexerError \/ Out]] = {
+
+    def processBody[A](awaitingBody: DecodeState.AwaitingBody[A], payloadUnitStartAfterData: Boolean): StepResult[Out] = {
+      val haveFullBody = awaitingBody.neededBits match {
+        case None => payloadUnitStartAfterData
+        case Some(needed) => awaitingBody.bitsPostHeader.size >= needed
+      }
+      if (haveFullBody) {
+        awaitingBody.decode match {
+          case Attempt.Successful(DecodeResult(body, remainder)) =>
+            val decoded = StepResult.oneResult(None, body.asInstanceOf[Out]) // Safe cast b/c DecodeDirective must provide a Decoder[Out]
+            if (awaitingBody.processRemainder(remainder)) decoded ++ processHeader(remainder, false, payloadUnitStartAfterData)
+            else decoded
+          case Attempt.Failure(err) =>
+            val failure = StepResult.oneError(None, DemultiplexerError.Decoding(err))
+            awaitingBody.neededBits match {
+              case None => failure
+              case Some(n) => failure ++ processHeader(awaitingBody.bitsPostHeader.drop(n.toLong), false, payloadUnitStartAfterData)
+            }
         }
       } else {
-        val neededBits = header.length * 8
-        if (bitsPostHeader.size < neededBits) {
-          go(state + (pid -> AwaitingPesBody(header, bitsPostHeader)))
-        } else {
-          doDecodePesBody(bitsPostHeader.take(neededBits.toLong)) ++ go(state - pid)
-        }
+        StepResult.state(awaitingBody)
       }
     }
 
-    def sectionBody(state: Map[Pid, DecodeState], pid: Pid, header: SectionHeader, bitsPostHeader: BitVector): Step = {
-      val neededBits = header.length * 8
-      if (bitsPostHeader.size < neededBits) {
-        go(state + (pid -> AwaitingSectionBody(header, bitsPostHeader)))
-      } else {
-        decodeSectionBody(header, bitsPostHeader) match {
-          case Attempt.Failure(err) =>
-            val rest = bitsPostHeader.drop(neededBits.toLong)
-            Process.emit(pidSpecificErr(pid, DemultiplexerError.Decoding(err))) ++ potentiallyNextSection(state, pid, rest)
-          case Attempt.Successful(DecodeResult(section, rest)) =>
-            Process.emit(pidSpecificSection(pid, section)) ++ potentiallyNextSection(state, pid, rest)
-        }
+    def processHeader(acc: BitVector, startedAtOffsetZero: Boolean, payloadUnitStartAfterData: Boolean): StepResult[Out] = {
+      decodeHeader(acc, startedAtOffsetZero) match {
+        case DecodeDirective.NeedMoreDataToDecodeHeader =>
+          StepResult.state(DecodeState.AwaitingHeader(acc, startedAtOffsetZero))
+        case DecodeDirective.DecodeBody(neededBits, bitsPostHeader, decoder, processRemainder) =>
+          val guardedDecoder = neededBits match {
+            case None => decoder
+            case Some(n) => fixedSizeBits(n, decoder.decodeOnly)
+          }
+          processBody(DecodeState.AwaitingBody(neededBits, bitsPostHeader, guardedDecoder, processRemainder), payloadUnitStartAfterData)
+        case DecodeDirective.ErrorDecodingHeader(err) =>
+          StepResult.oneError(None, err)
       }
     }
 
-    def potentiallyNextSection(state: Map[Pid, DecodeState], pid: Pid, payload: BitVector): Step = {
-      // Peek at table_id -- if we see 0xff, then there are no further sections in this packet
-      if (payload.size >= 8 && payload.take(8) != BitVector.high(8))
-        nextMessage(state - pid, pid, Some(0), payload)
-      else go(state - pid)
+    def resume(state: DecodeState, newData: BitVector, payloadUnitStartAfterData: Boolean): StepResult[Out] = state match {
+      case ah: DecodeState.AwaitingHeader =>
+        processHeader(ah.acc ++ newData, ah.startedAtOffsetZero, payloadUnitStartAfterData)
+
+      case ab: DecodeState.AwaitingBody[_] =>
+        processBody(ab.accumulate(newData), payloadUnitStartAfterData)
     }
 
-    def handlePacket(state: Map[Pid, DecodeState], packet: Packet): Step = {
-      val pid = packet.header.pid
+    def handlePacket(state: Option[DecodeState], packet: Packet): StepResult[Out] = {
       packet.payload match {
-        case None => go(state)
+        case None => StepResult.noOutput(state)
         case Some(payload) =>
-          state.get(packet.header.pid) match {
+          val currentResult = state match {
+            case None => StepResult.noOutput(state)
+            case Some(state) =>
+              val currentData = packet.payloadUnitStart.map { start => payload.take(start.toLong) }.getOrElse(payload)
+              resume(state, currentData, payloadUnitStartAfterData = packet.payloadUnitStart.isDefined)
+          }
+          packet.payloadUnitStart match {
             case None =>
-              nextMessage(state, packet.header.pid, packet.payloadUnitStart, payload)
-            case Some(AwaitingHeader(acc)) =>
-              nextMessage(state, packet.header.pid, Some(0), acc ++ payload)
-            case Some(AwaitingSectionBody(header, acc)) =>
-              sectionBody(state, packet.header.pid, header, acc ++ payload)
-            case Some(AwaitingPesBody(header, acc)) =>
-              pesBody(state, packet.header.pid, header, acc ++ payload, Some(packet))
+              currentResult
+            case Some(start) =>
+              val nextResult = processHeader(payload.drop(start.toLong), start == 0, false)
+              currentResult ++ nextResult
           }
       }
     }
 
-    def go(state: Map[Pid, DecodeState]): Step =
+    def go(state: Map[Pid, DecodeState]): Process1[PidStamped[DemultiplexerError.Discontinuity] \/ Packet, PidStamped[DemultiplexerError \/ Out]] =
       Process.await1[PidStamped[DemultiplexerError.Discontinuity] \/ Packet].flatMap {
         case -\/(discontinuity) =>
-          Process.emit(pidSpecificErr(discontinuity.pid, discontinuity.value)) ++ go(state - discontinuity.pid)
+          Process.emit(PidStamped(discontinuity.pid, \/.left(discontinuity.value))) ++ go(state - discontinuity.pid)
 
         case \/-(packet) =>
-          handlePacket(state, packet)
+          val pid = packet.header.pid
+          val oldStateForPid = state.get(pid)
+          val result = handlePacket(oldStateForPid, packet)
+          val newState = result.state.map { s => state.updated(pid, s) }.getOrElse(state - pid)
+          Process.emitAll(result.output.map { e => PidStamped(pid, e) }) ++ go(newState)
       }
 
     Packet.validateContinuity pipe go(Map.empty)
   }
-
-  /** Provides a stream decoder that decodes a bitstream of 188 byte MPEG packets in to a stream of messages. */
-  def packetStreamDecoder(sectionCodec: SectionCodec): StreamDecoder[PidStamped[DemultiplexerError \/ Result]] = decodeMany[Packet] pipe demultiplex(sectionCodec)
 }

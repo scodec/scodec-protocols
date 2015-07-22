@@ -1,7 +1,7 @@
 package scodec.protocols.mpeg
 
 import scodec.bits._
-import scodec.{ Attempt, Codec, DecodeResult, Err }
+import scodec.{ Attempt, Codec, Decoder, DecodeResult, Err }
 
 trait PesPacket
 
@@ -11,7 +11,10 @@ object PesPacket {
   case class WithoutHeader(streamId: Int, data: BitVector) extends PesPacket
   case object Padding extends PesPacket
 
-  def decode(prefix: PesPacketHeaderPrefix, buffer: BitVector): Attempt[DecodeResult[PesPacket]] = {
+  def decode(prefix: PesPacketHeaderPrefix, buffer: BitVector): Attempt[DecodeResult[PesPacket]] =
+    decoder(prefix).decode(buffer)
+
+  def decoder(prefix: PesPacketHeaderPrefix): Decoder[PesPacket] = Decoder { buffer =>
     val id = prefix.streamId
     import PesStreamId._
     if (id != ProgramStreamMap &&
