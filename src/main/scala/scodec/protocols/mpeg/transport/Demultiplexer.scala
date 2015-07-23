@@ -132,8 +132,6 @@ object Demultiplexer {
   ): Process1[Packet, PidStamped[DemultiplexerError \/ Out]] = {
 
     def processBody[A](awaitingBody: DecodeState.AwaitingBody[A], payloadUnitStartAfterData: Boolean): StepResult[Out] = {
-      val trace = awaitingBody.neededBits.map { n => n == 937 * 8L }.getOrElse(false)
-      if (trace) println(s"processing body, need ${awaitingBody.neededBits.map(_ / 8L)}, have ${awaitingBody.bitsPostHeader.size / 8L}")
       val haveFullBody = awaitingBody.neededBits match {
         case None => payloadUnitStartAfterData
         case Some(needed) => awaitingBody.bitsPostHeader.size >= needed
