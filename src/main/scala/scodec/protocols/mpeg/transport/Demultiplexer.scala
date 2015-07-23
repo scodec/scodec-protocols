@@ -27,17 +27,23 @@ object Demultiplexer {
    * Upon receiving a result of this type, the demultiplexer will accumulate the number of bits specified by `neededBits` if that value
    * is defined. If `neededBits` is undefined, the demultiplexer will accumulate all payload bits until the start of the next message (as
    * indicated by the payload unit start indicator). When accumulation has completed, the specified decoder will be invoked to decode
-   * a message. If there is a remainder from the result of decoding, it is passed to the `decodeRemainder` predicate to see if the
-   * remainder should be processed as another message or if it should be discarded.
+   * a message.
    */
-  case class DecodeBody[A](neededBits: Option[Long], decoder: Decoder[A], decodeRemainder: BitVector => Boolean)
+  case class DecodeBody[A](neededBits: Option[Long], decoder: Decoder[A])
+
+  /** Error that indicates any data accumulated by the demultiplexer should be dropped and no further decoding should occur until the next
+   * payload start. */
+  case class ResetDecodeState(context: List[String]) extends Err {
+    def message = "reset decode state"
+    def pushContext(ctx: String) = ResetDecodeState(ctx :: context)
+  }
 
   private sealed trait DecodeState
   private object DecodeState {
 
     case class AwaitingHeader(acc: BitVector, startedAtOffsetZero: Boolean) extends DecodeState
 
-    case class AwaitingBody[A](neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A], processRemainder: BitVector => Boolean) extends DecodeState {
+    case class AwaitingBody[A](neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A]) extends DecodeState {
       def decode: Attempt[DecodeResult[A]] = decoder.decode(bitsPostHeader)
       def accumulate(data: BitVector): AwaitingBody[A] = copy(bitsPostHeader = bitsPostHeader ++ data)
     }
@@ -79,9 +85,13 @@ object Demultiplexer {
     decodeSectionBody: SectionHeader => Decoder[Section],
     decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] = {
 
+    val stuffingByte = bin"11111111"
+
     def decodeHeader(data: BitVector, startedAtOffsetZero: Boolean): Attempt[DecodeResult[DecodeBody[Result]]] = {
       if (data.sizeLessThan(16)) {
         Attempt.failure(Err.InsufficientBits(16, data.size, Nil))
+      } else if (data startsWith stuffingByte) {
+        Attempt.failure(ResetDecodeState(Nil))
       } else {
         if (startedAtOffsetZero && data.take(16) == hex"0001".bits) {
           if (data.sizeLessThan(40)) {
@@ -89,7 +99,7 @@ object Demultiplexer {
           } else {
             Codec[PesPacketHeaderPrefix].decode(data.drop(16)) map { _ map { header =>
                 val neededBits = if (header.length == 0) None else Some(header.length * 8L)
-                DecodeBody(neededBits, decodePesBody(header).map(PesPacketResult.apply), rem => false)
+                DecodeBody(neededBits, decodePesBody(header).map(PesPacketResult.apply))
             }}
           }
         } else {
@@ -97,7 +107,7 @@ object Demultiplexer {
             Attempt.failure(Err.InsufficientBits(32, data.size, Nil))
           } else {
             Codec[SectionHeader].decode(data) map { _ map { header =>
-              DecodeBody(Some(header.length * 8L), decodeSectionBody(header).map(SectionResult.apply), rem => rem.size >= 8 && rem.take(8) != BitVector.high(8))
+              DecodeBody(Some(header.length * 8L), decodeSectionBody(header).map(SectionResult.apply))
             }}
           }
         }
@@ -122,6 +132,8 @@ object Demultiplexer {
   ): Process1[Packet, PidStamped[DemultiplexerError \/ Out]] = {
 
     def processBody[A](awaitingBody: DecodeState.AwaitingBody[A], payloadUnitStartAfterData: Boolean): StepResult[Out] = {
+      val trace = awaitingBody.neededBits.map { n => n == 937 * 8L }.getOrElse(false)
+      if (trace) println(s"processing body, need ${awaitingBody.neededBits.map(_ / 8L)}, have ${awaitingBody.bitsPostHeader.size / 8L}")
       val haveFullBody = awaitingBody.neededBits match {
         case None => payloadUnitStartAfterData
         case Some(needed) => awaitingBody.bitsPostHeader.size >= needed
@@ -130,15 +142,14 @@ object Demultiplexer {
         awaitingBody.decode match {
           case Attempt.Successful(DecodeResult(body, remainder)) =>
             val decoded = StepResult.oneResult(None, body.asInstanceOf[Out]) // Safe cast b/c DecodeBody must provide a Decoder[Out]
-            if (awaitingBody.processRemainder(remainder)) decoded ++ processHeader(remainder, false, payloadUnitStartAfterData)
-            else decoded
+            decoded ++ processHeader(remainder, false, payloadUnitStartAfterData)
           case Attempt.Failure(err) =>
-            val failure = StepResult.oneError(None, DemultiplexerError.Decoding(err))
+            val out = if (err.isInstanceOf[ResetDecodeState]) Vector.empty else Vector(\/.left(DemultiplexerError.Decoding(err)))
+            val failure = StepResult(None, out)
             awaitingBody.neededBits match {
               case Some(n) =>
                 val remainder = awaitingBody.bitsPostHeader.drop(n.toLong)
-                if (awaitingBody.processRemainder(remainder)) failure ++ processHeader(remainder, false, payloadUnitStartAfterData)
-                else failure
+                failure ++ processHeader(remainder, false, payloadUnitStartAfterData)
               case None => failure
             }
         }
@@ -151,14 +162,16 @@ object Demultiplexer {
       decodeHeader(acc, startedAtOffsetZero) match {
         case Attempt.Failure(e: Err.InsufficientBits) =>
           StepResult.state(DecodeState.AwaitingHeader(acc, startedAtOffsetZero))
+        case Attempt.Failure(_: ResetDecodeState) =>
+          StepResult.noOutput(None)
         case Attempt.Failure(e) =>
           StepResult.oneError(None, DemultiplexerError.Decoding(e))
-        case Attempt.Successful(DecodeResult(DecodeBody(neededBits, decoder, processRemainder), bitsPostHeader)) =>
+        case Attempt.Successful(DecodeResult(DecodeBody(neededBits, decoder), bitsPostHeader)) =>
           val guardedDecoder = neededBits match {
             case None => decoder
             case Some(n) => fixedSizeBits(n, decoder.decodeOnly)
           }
-          processBody(DecodeState.AwaitingBody(neededBits, bitsPostHeader, guardedDecoder, processRemainder), payloadUnitStartAfterData)
+          processBody(DecodeState.AwaitingBody(neededBits, bitsPostHeader, guardedDecoder), payloadUnitStartAfterData)
       }
     }
 
@@ -177,7 +190,7 @@ object Demultiplexer {
           val currentResult = state match {
             case None => StepResult.noOutput(state)
             case Some(state) =>
-              val currentData = packet.payloadUnitStart.map { start => payload.take(start.toLong) }.getOrElse(payload)
+              val currentData = packet.payloadUnitStart.map { start => payload.take(start.toLong * 8L) }.getOrElse(payload)
               resume(state, currentData, payloadUnitStartAfterData = packet.payloadUnitStart.isDefined)
           }
           packet.payloadUnitStart match {
