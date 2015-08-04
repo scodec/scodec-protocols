@@ -119,7 +119,7 @@ object Demultiplexer {
   /**
    * Most general way to perform demultiplexing, allowing parsing of arbitrary headers and decoding of a specified output type.
    *
-   * When processing the payload in a packet, the start of the payload along is passed to `decodeHeader`, which determines how to
+   * When processing the payload in a packet, the start of the payload is passed along to `decodeHeader`, which determines how to
    * process the body of the message.
    *
    * In addition to the payload data, a flag is passed to `decodeHeader` -- true is passed when the payload data started at byte 0 of
