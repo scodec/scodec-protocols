@@ -15,13 +15,14 @@ object TransportStreamEvent {
   case class Pes(pid: Pid, pes: PesPacket) extends TransportStreamEvent
   case class Table(pid: Pid, table: TableMessage) extends TransportStreamEvent
   case class Metadata[A](pid: Option[Pid], metadata: A) extends TransportStreamEvent
-  case class Error(pid: Pid, err: MpegError) extends TransportStreamEvent
+  case class Error(pid: Option[Pid], err: MpegError) extends TransportStreamEvent
 
   def pes(pid: Pid, pes: PesPacket): TransportStreamEvent = Pes(pid, pes)
   def table(pid: Pid, table: TableMessage): TransportStreamEvent = Table(pid, table)
   def metadata[A](md: A): TransportStreamEvent = Metadata(None, md)
   def metadata[A](pid: Pid, md: A): TransportStreamEvent = Metadata(Some(pid), md)
-  def error(pid: Pid, e: MpegError): TransportStreamEvent = Error(pid, e)
+  def error(pid: Pid, e: MpegError): TransportStreamEvent = Error(Some(pid), e)
+  def error(pid: Option[Pid], e: MpegError): TransportStreamEvent = Error(pid, e)
 
   private def sectionsToTables(
     group: Process1[Section, GroupingError \/ GroupedSections], tableBuilder: TableBuilder
@@ -70,7 +71,7 @@ object TransportStreamEvent {
       case PidStamped(pid, \/-(Demultiplexer.PesPacketResult(p))) =>
         right(pes(pid, p))
       case PidStamped(pid, -\/(e)) =>
-        left(PidStamped(pid, left(e)))
+        left(PidStamped(pid, left(e.toMpegError)))
     })
   }
 
