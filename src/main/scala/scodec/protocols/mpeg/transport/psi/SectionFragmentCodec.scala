@@ -51,4 +51,7 @@ object SectionFragmentCodec {
       }
     }
   }
+
+  def nonExtendedIdentity[A](tableId: Int, toCodec: SectionHeader => Codec[A]): SectionFragmentCodec[A] =
+    SectionFragmentCodec.nonExtended[A, A](tableId, sHdr => toCodec(sHdr), (bits, a) => a, a => (BitVector.empty, a))
 }

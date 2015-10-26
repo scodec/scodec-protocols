@@ -6,6 +6,9 @@ package psi
 import scalaz.{ \/, \/-, -\/, NonEmptyList }
 import \/.{ left, right }
 import scalaz.stream._
+import scalaz.syntax.std.option._
+
+import shapeless.Typeable
 
 case class TableBuildingError(tableId: Int, message: String) extends MpegError
 
@@ -46,4 +49,20 @@ trait TableSupport[T <: Table] {
   def tableId: Int
   def toTable(gs: GroupedSections): String \/ T
   def toSections(t: T): NonEmptyList[Section]
+}
+
+object TableSupport {
+
+  def singleton[A <: Section with Table : reflect.ClassTag](tableId: Int)(implicit t: Typeable[A]): TableSupport[A] = {
+    val tid = tableId
+    new TableSupport[A] {
+      def tableId = tid
+      def toTable(gs: GroupedSections) =
+        gs.as[A].toRightDisjunction(s"Not a ${t.describe}").flatMap { sections =>
+          if (sections.tail.isEmpty) \/.right(sections.head)
+          else \/.left(s"${t.describe} supports only 1 section but got ${sections.list.size}")
+        }
+      def toSections(table: A) = NonEmptyList(table)
+    }
+  }
 }
