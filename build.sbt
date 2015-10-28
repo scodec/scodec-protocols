@@ -10,9 +10,9 @@ rootPackage := "scodec.protocols"
 resolvers += "Scalaz Bintray Repo" at "http://dl.bintray.com/scalaz/releases"
 
 libraryDependencies ++= Seq(
-  "org.scodec" %% "scodec-core" % "1.8.0",
-  "org.scodec" %% "scodec-stream" % "0.10.0",
-  "org.scodec" %% "scodec-scalaz" % "1.1.0",
+  "org.scodec" %% "scodec-core" % "1.9.0-SNAPSHOT",
+  "org.scodec" %% "scodec-stream" % "0.11.0-SNAPSHOT",
+  "org.scodec" %% "scodec-scalaz" % "1.2.0-SNAPSHOT",
   "joda-time" % "joda-time" % "2.6",
   "org.joda" % "joda-convert" % "1.7",
   "org.scalatest" %% "scalatest" % "2.2.2" % "test",

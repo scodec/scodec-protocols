@@ -65,16 +65,16 @@ class SectionCodec private (cases: Map[Int, SectionCodec.Case[Any, Section]], ve
       encHeader <- Codec[SectionHeader].encode(header)
     } yield (crc32mpeg(encHeader ++ encExt ++ encData).toInt())
 
-    def decodeExtended: DecodingContext[(Option[SectionExtension], Any)] = for {
-      ext <- DecodingContext(Codec[SectionExtension])
-      data <- DecodingContext(fixedSizeBytes(header.length.toLong - 9, c.codec(header)))
-      actualCrc <- DecodingContext(int32)
-      expectedCrc <- DecodingContext.liftAttempt { if (verifyCrc) generateCrc(ext, data) else Attempt.successful(actualCrc) }
-      _ <- DecodingContext.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc))
+    def decodeExtended: Decoder[(Option[SectionExtension], Any)] = for {
+      ext <- Codec[SectionExtension]
+      data <- fixedSizeBytes(header.length.toLong - 9, c.codec(header))
+      actualCrc <- int32
+      expectedCrc <- Decoder.liftAttempt { if (verifyCrc) generateCrc(ext, data) else Attempt.successful(actualCrc) }
+      _ <- Decoder.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc))
     } yield Some(ext) -> data
 
-    def decodeStandard: DecodingContext[(Option[SectionExtension], Any)] = for {
-      data <- DecodingContext(fixedSizeBytes(header.length.toLong, c.codec(header)))
+    def decodeStandard: Decoder[(Option[SectionExtension], Any)] = for {
+      data <- fixedSizeBytes(header.length.toLong, c.codec(header))
     } yield None -> data
 
     for {
