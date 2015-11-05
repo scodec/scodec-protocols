@@ -2,6 +2,7 @@ package scodec.protocols.mpeg
 package transport
 
 import scodec.Err
+import scodec.bits.BitVector
 
 sealed abstract class DemultiplexerError {
   def toMpegError: MpegError
@@ -14,8 +15,8 @@ object DemultiplexerError {
     def toMpegError = this
   }
 
-  case class Decoding(decodingError: Err) extends DemultiplexerError {
-    def message = s"decoding error: $decodingError"
-    def toMpegError = MpegError.Decoding(decodingError)
+  case class Decoding(data: BitVector, decodingError: Err) extends DemultiplexerError {
+    def message = s"decoding error ($decodingError) while decoding ${data.toHex}"
+    def toMpegError = MpegError.Decoding(data, decodingError)
   }
 }

@@ -43,7 +43,7 @@ object Demultiplexer {
 
     case class AwaitingHeader(acc: BitVector, startedAtOffsetZero: Boolean) extends DecodeState
 
-    case class AwaitingBody[A](neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A]) extends DecodeState {
+    case class AwaitingBody[A](headerBits: BitVector, neededBits: Option[Long], bitsPostHeader: BitVector, decoder: Decoder[A]) extends DecodeState {
       def decode: Attempt[DecodeResult[A]] = decoder.decode(bitsPostHeader)
       def accumulate(data: BitVector): AwaitingBody[A] = copy(bitsPostHeader = bitsPostHeader ++ data)
     }
@@ -142,7 +142,10 @@ object Demultiplexer {
             val decoded = StepResult.oneResult(None, body.asInstanceOf[Out]) // Safe cast b/c DecodeBody must provide a Decoder[Out]
             decoded ++ processHeader(remainder, false, payloadUnitStartAfterData)
           case Attempt.Failure(err) =>
-            val out = if (err.isInstanceOf[ResetDecodeState]) Vector.empty else Vector(\/.left(DemultiplexerError.Decoding(err)))
+            val out = {
+              if (err.isInstanceOf[ResetDecodeState]) Vector.empty
+              else Vector(\/.left(DemultiplexerError.Decoding(awaitingBody.headerBits ++ awaitingBody.bitsPostHeader, err)))
+            }
             val failure = StepResult(None, out)
             awaitingBody.neededBits match {
               case Some(n) =>
@@ -163,13 +166,13 @@ object Demultiplexer {
         case Attempt.Failure(_: ResetDecodeState) =>
           StepResult.noOutput(None)
         case Attempt.Failure(e) =>
-          StepResult.oneError(None, DemultiplexerError.Decoding(e))
+          StepResult.oneError(None, DemultiplexerError.Decoding(acc, e))
         case Attempt.Successful(DecodeResult(DecodeBody(neededBits, decoder), bitsPostHeader)) =>
           val guardedDecoder = neededBits match {
             case None => decoder
             case Some(n) => fixedSizeBits(n, decoder.decodeOnly)
           }
-          processBody(DecodeState.AwaitingBody(neededBits, bitsPostHeader, guardedDecoder), payloadUnitStartAfterData)
+          processBody(DecodeState.AwaitingBody(acc.take(32L), neededBits, bitsPostHeader, guardedDecoder), payloadUnitStartAfterData)
       }
     }
 

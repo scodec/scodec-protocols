@@ -5,6 +5,7 @@ import scalaz.{ \/, \/-, -\/ }
 import \/.{ left, right }
 import scalaz.stream.{ Process1, process1 }
 import scodec.Err
+import scodec.bits.BitVector
 
 trait MpegError {
   def message: String
@@ -13,7 +14,7 @@ trait MpegError {
 object MpegError {
 
   case class General(message: String) extends MpegError
-  case class Decoding(err: Err) extends MpegError {
+  case class Decoding(data: BitVector, err: Err) extends MpegError {
     def message = s"decoding error: $err"
   }
 
