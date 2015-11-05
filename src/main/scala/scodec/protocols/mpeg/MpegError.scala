@@ -13,9 +13,12 @@ trait MpegError {
 
 object MpegError {
 
-  case class General(message: String) extends MpegError
+  case class General(message: String) extends MpegError {
+    override def toString = message
+  }
   case class Decoding(data: BitVector, err: Err) extends MpegError {
-    def message = s"decoding error: $err"
+    def message = s"error encountered when decoding: $err ${data.toHex}"
+    override def toString = message
   }
 
   def joinErrors[A, B](p: Process1[A, MpegError \/ B]): Process1[MpegError \/ A, MpegError \/ B] =

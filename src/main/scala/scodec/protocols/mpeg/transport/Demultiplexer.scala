@@ -172,7 +172,7 @@ object Demultiplexer {
             case None => decoder
             case Some(n) => fixedSizeBits(n, decoder.decodeOnly)
           }
-          processBody(DecodeState.AwaitingBody(acc.take(32L), neededBits, bitsPostHeader, guardedDecoder), payloadUnitStartAfterData)
+          processBody(DecodeState.AwaitingBody(acc.take(24L), neededBits, bitsPostHeader, guardedDecoder), payloadUnitStartAfterData)
       }
     }
 
