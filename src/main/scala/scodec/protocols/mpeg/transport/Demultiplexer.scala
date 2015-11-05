@@ -103,8 +103,8 @@ object Demultiplexer {
             }}
           }
         } else {
-          if (data.sizeLessThan(32)) {
-            Attempt.failure(Err.InsufficientBits(32, data.size, Nil))
+          if (data.sizeLessThan(24)) {
+            Attempt.failure(Err.InsufficientBits(24, data.size, Nil))
           } else {
             Codec[SectionHeader].decode(data) map { _ map { header =>
               DecodeBody(Some(header.length * 8L), decodeSectionBody(header).map(SectionResult.apply))
@@ -144,7 +144,11 @@ object Demultiplexer {
           case Attempt.Failure(err) =>
             val out = {
               if (err.isInstanceOf[ResetDecodeState]) Vector.empty
-              else Vector(\/.left(DemultiplexerError.Decoding(awaitingBody.headerBits ++ awaitingBody.bitsPostHeader, err)))
+              else Vector(\/.left(DemultiplexerError.Decoding(
+                awaitingBody.headerBits ++
+                  awaitingBody.neededBits.
+                    map { n => awaitingBody.bitsPostHeader.take(n) }.
+                    getOrElse(awaitingBody.bitsPostHeader), err)))
             }
             val failure = StepResult(None, out)
             awaitingBody.neededBits match {

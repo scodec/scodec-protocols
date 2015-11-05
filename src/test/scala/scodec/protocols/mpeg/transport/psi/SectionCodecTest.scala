@@ -69,7 +69,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val p = Process.emitAll(packets).toSource pipe Demultiplexer.demultiplex(sc)
 
         p.runLog.run shouldBe (
-          PidStamped(Pid(0), left(DemultiplexerError.Decoding(Err("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)")))) +:
+          PidStamped(Pid(0), left(DemultiplexerError.Decoding(hex"002001ff".bits, Err("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)")))) +:
           sections.map { x => PidStamped(Pid(0), right(Demultiplexer.SectionResult(x))) }
         )
       }
@@ -77,11 +77,10 @@ class SectionCodecTest extends ProtocolsSpec {
       "reports invalid CRC" in {
         val pas = ProgramAssociationTable.toSections(ProgramAssociationTable(TransportStreamId(1), 15, true, Map(ProgramNumber(1) -> Pid(2)))).head
         val pasEnc = sectionCodec.encode(pas).require
-        val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
+        val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.takeRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
         val p = Process.emit(packet).toSource pipe Demultiplexer.demultiplex(sectionCodec)
-        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DemultiplexerError.Decoding(Err("CRC mismatch: calculated 18564404 does not equal -11537665")))))
-
+        p.runLog.run shouldBe IndexedSeq(PidStamped(Pid(0), left(DemultiplexerError.Decoding(corruptedSection, Err("CRC mismatch: calculated 18564404 does not equal -18564405")))))
       }
 
       "does not report invalid CRC when verifyCrc is disabled" in {
