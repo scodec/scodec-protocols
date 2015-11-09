@@ -3,11 +3,7 @@ package mpeg
 package transport
 package psi
 
-import scalaz.std.AllInstances._
-import scalaz.syntax.foldable._
-
 import scodec.bits._
-import scodec.interop.scalaz._
 
 class PacketTest extends ProtocolsSpec {
 
@@ -24,7 +20,7 @@ class PacketTest extends ProtocolsSpec {
 
     "support packetizing multiple sections across multiple packets" in {
       val sections = (0 until 256).map { x => ByteVector.fill(10)(x).bits }.toVector
-      val data = sections.concatenate
+      val data = sections.foldLeft(BitVector.empty)(_ ++ _)
       val packets = Packet.packetizeMany(Pid(0), ContinuityCounter(0), sections)
 
       packets.zipWithIndex.foreach { case (packet, idx) =>
