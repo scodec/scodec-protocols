@@ -14,12 +14,7 @@ class SectionCodec private (cases: Map[Int, List[SectionCodec.Case[Any, Section]
   import SectionCodec._
 
   def supporting[A <: Section](implicit c: SectionFragmentCodec[A]): SectionCodec = {
-    val newCase = Case[Any, Section](
-      hdr => c.subCodec(hdr).asInstanceOf[Codec[Any]],
-      (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
-      section => c.fromSection(section.asInstanceOf[A])
-    )
-    val newCases = newCase :: cases.getOrElse(c.tableId, Nil)
+    val newCases = Case.fromSectionFragmentCodec(c) :: cases.getOrElse(c.tableId, Nil)
     new SectionCodec(cases + (c.tableId -> newCases), verifyCrc)
   }
 
@@ -33,11 +28,11 @@ class SectionCodec private (cases: Map[Int, List[SectionCodec.Case[Any, Section]
       val preHeader = SectionHeader(section.tableId, extension.isDefined, privateBits, 0)
       for {
         encData <- extension match {
-          case None => c.codec(preHeader).encode(data)
+          case None => c.codec(preHeader, verifyCrc).encode(data)
           case Some(ext) =>
             for {
               encExt <- Codec[SectionExtension].encode(ext)
-              encData <- c.codec(preHeader).encode(data)
+              encData <- c.codec(preHeader, verifyCrc).encode(data)
             } yield encExt ++ encData
         }
         includeCrc = extension.isDefined
@@ -70,20 +65,20 @@ class SectionCodec private (cases: Map[Int, List[SectionCodec.Case[Any, Section]
 
     def generateCrc(c: SectionCodec.Case[Any, Section], ext: SectionExtension, data: Any) = for {
       encExt <- Codec[SectionExtension].encode(ext)
-      encData <- c.codec(header).encode(data)
+      encData <- c.codec(header, verifyCrc).encode(data)
       encHeader <- Codec[SectionHeader].encode(header)
     } yield (crc32mpeg(encHeader ++ encExt ++ encData).toInt())
 
     def decodeExtended(c: SectionCodec.Case[Any, Section]): Decoder[(Option[SectionExtension], Any)] = for {
       ext <- Codec[SectionExtension]
-      data <- fixedSizeBytes(header.length.toLong - 9, c.codec(header))
+      data <- fixedSizeBytes(header.length.toLong - 9, c.codec(header, verifyCrc))
       actualCrc <- int32
       expectedCrc <- Decoder.liftAttempt { if (verifyCrc) generateCrc(c, ext, data) else Attempt.successful(actualCrc) }
       _ <- Decoder.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc))
     } yield Some(ext) -> data
 
     def decodeStandard(c: SectionCodec.Case[Any, Section]): Decoder[(Option[SectionExtension], Any)] = for {
-      data <- fixedSizeBytes(header.length.toLong, c.codec(header))
+      data <- fixedSizeBytes(header.length.toLong, c.codec(header, verifyCrc))
     } yield None -> data
 
     def attemptDecode(c: SectionCodec.Case[Any, Section]): Attempt[DecodeResult[Section]] = for {
@@ -114,12 +109,22 @@ object SectionCodec {
   case class UnknownExtendedSection(tableId: Int, privateBits: BitVector, extension: SectionExtension, data: ByteVector) extends UnknownSection with ExtendedSection
 
   private case class Case[A, B <: Section](
-    codec: SectionHeader => Codec[A],
+    codec: (SectionHeader, Boolean) => Codec[A],
     toSection: (BitVector, Option[SectionExtension], A) => Attempt[B],
     fromSection: B => (BitVector, Option[SectionExtension], A))
 
+  private object Case {
+    def fromSectionFragmentCodec[A <: Section](c: SectionFragmentCodec[A]): Case[Any, Section] = {
+      Case[Any, Section](
+        (hdr, verifyCrc) => c.subCodec(hdr, verifyCrc).asInstanceOf[Codec[Any]],
+        (privateBits, extension, data) => c.toSection(privateBits, extension, data.asInstanceOf[c.Repr]),
+        section => c.fromSection(section.asInstanceOf[A])
+      )
+    }
+  }
+
   private def unknownSectionCase(tableId: Int): Case[BitVector, UnknownSection] = Case(
-    hdr => bits,
+    (hdr, verifyCrc) => bits,
     (privateBits, ext, bits) => Attempt.successful(ext match {
       case Some(e) => UnknownExtendedSection(tableId, privateBits, e, bits.bytes)
       case None =>  UnknownNonExtendedSection(tableId, privateBits, bits.bytes)

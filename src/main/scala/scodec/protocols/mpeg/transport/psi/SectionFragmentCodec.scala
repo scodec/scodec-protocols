@@ -8,7 +8,7 @@ import scodec.{ Attempt, Codec, Err }
 trait SectionFragmentCodec[A] {
   type Repr
   def tableId: Int
-  def subCodec(header: SectionHeader): Codec[Repr]
+  def subCodec(header: SectionHeader, verifyCrc: Boolean): Codec[Repr]
   def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr): Attempt[A]
   def fromSection(section: A): (BitVector, Option[SectionExtension], Repr)
 }
@@ -26,7 +26,7 @@ object SectionFragmentCodec {
     new SectionFragmentCodec[A] {
       type Repr = R
       def tableId = tid
-      def subCodec(header: SectionHeader) = Codec[Repr]
+      def subCodec(header: SectionHeader, verifyCrc: Boolean) = Codec[Repr]
       def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
         Attempt.fromOption(extension.map { ext => build(privateBits, ext, data) }, Err("extended section missing expected section extension"))
       def fromSection(section: A) =
@@ -42,7 +42,25 @@ object SectionFragmentCodec {
     new SectionFragmentCodec[A] {
       type Repr = R
       def tableId = tid
-      def subCodec(header: SectionHeader) = codec(header)
+      def subCodec(header: SectionHeader, verifyCrc: Boolean) = codec(header)
+      def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
+        Attempt.successful(build(privateBits, data))
+      def fromSection(section: A) = {
+        val (privateBits, r) = extract(section)
+        (privateBits, None, r)
+      }
+    }
+  }
+
+  def nonExtendedWithCrc[A, R](tableId: Int, toCodec: (SectionHeader, Boolean) => Codec[R], toSection: (BitVector, R) => A, fromSection: A => (BitVector, R)): SectionFragmentCodec[A] = {
+    val tid = tableId
+    val codec = toCodec
+    val build = toSection
+    val extract = fromSection
+    new SectionFragmentCodec[A] {
+      type Repr = R
+      def tableId = tid
+      def subCodec(header: SectionHeader, verifyCrc: Boolean) = codec(header, verifyCrc)
       def toSection(privateBits: BitVector, extension: Option[SectionExtension], data: Repr) =
         Attempt.successful(build(privateBits, data))
       def fromSection(section: A) = {
@@ -54,4 +72,7 @@ object SectionFragmentCodec {
 
   def nonExtendedIdentity[A](tableId: Int, toCodec: SectionHeader => Codec[A]): SectionFragmentCodec[A] =
     SectionFragmentCodec.nonExtended[A, A](tableId, sHdr => toCodec(sHdr), (bits, a) => a, a => (BitVector.empty, a))
+
+  def nonExtendedIdentityWithCrc[A](tableId: Int, toCodec: (SectionHeader, Boolean) => Codec[A]): SectionFragmentCodec[A] =
+    SectionFragmentCodec.nonExtendedWithCrc[A, A](tableId, (sHdr, verifyCrc) => toCodec(sHdr, verifyCrc), (bits, a) => a, a => (BitVector.empty, a))
 }
