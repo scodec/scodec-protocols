@@ -12,19 +12,20 @@ import shapeless.Typeable
 
 case class TableBuildingError(tableId: Int, message: String) extends MpegError
 
-class TableBuilder private (cases: Map[Int, TableSupport[_]]) {
+class TableBuilder private (cases: Map[Int, List[TableSupport[_]]]) {
 
   def supporting[T <: Table : TableSupport]: TableBuilder = {
     val ts = implicitly[TableSupport[T]]
-    new TableBuilder(cases + (ts.tableId -> ts))
+    val newCases = ts :: cases.getOrElse(ts.tableId, Nil)
+    new TableBuilder(cases + (ts.tableId -> newCases))
   }
 
   def sectionsToTables: Process1[GroupedSections, TableBuildingError \/ Table] = {
     Process.await1[GroupedSections].flatMap { gs =>
       cases.get(gs.tableId) match {
-        case None => Process.halt
-        case Some(ts) =>
-          ts.toTable(gs) match {
+        case None | Some(Nil) => Process.halt
+        case Some(list) =>
+          list.dropRight(1).foldRight[String \/ _](list.last.toTable(gs)) { (next, res) => res orElse next.toTable(gs) } match {
             case \/-(table) => Process.emit(right(table.asInstanceOf[Table]))
             case -\/(err) => Process.emit(left(TableBuildingError(gs.tableId, err)))
           }

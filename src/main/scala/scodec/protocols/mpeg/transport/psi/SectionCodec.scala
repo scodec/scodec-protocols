@@ -45,7 +45,7 @@ class SectionCodec private (cases: Map[Int, List[SectionCodec.Case[Any, Section]
 
     for {
       cs <- Attempt.fromOption(cases.get(section.tableId), Err(s"unsupported table id ${section.tableId}"))
-      enc <- cs.tail.foldRight(tryEncode(cs.head)) { (next, res) => res orElse tryEncode(next) }
+      enc <- cs.dropRight(1).foldRight(tryEncode(cs.last)) { (next, res) => res orElse tryEncode(next) }
     } yield enc
   }
 
