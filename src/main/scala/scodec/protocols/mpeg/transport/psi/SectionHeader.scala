@@ -14,8 +14,6 @@ case class SectionHeader(
 
 object SectionHeader {
 
-  val BitLength = 32
-
   implicit val codec: Codec[SectionHeader] = {
     ("table_id"                 | uint8    ) ::
     ("section_syntax_indicator" | bool     ) ::
