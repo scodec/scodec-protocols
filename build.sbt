@@ -3,7 +3,7 @@ scodecModule := "scodec-protocols"
 scodecPrimaryModule
 scodecPrimaryModuleJvm
 
-crossScalaVersions := "2.11.7"
+crossScalaVersions := crossScalaVersions.value.filter { _ startsWith "2.11." }
 
 contributors ++= Seq(Contributor("mpilquist", "Michael Pilquist"))
 
