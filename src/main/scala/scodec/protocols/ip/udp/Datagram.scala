@@ -13,7 +13,7 @@ object Datagram {
     def sizeBound = Codec[DatagramHeader].sizeBound.atLeast
 
     def encode(dg: Datagram) = for {
-      encHeader <- Codec.encode(DatagramHeader(dg.sourcePort, dg.destinationPort, 8 + dg.data.bytes.size, 0))
+      encHeader <- Codec.encode(DatagramHeader(dg.sourcePort, dg.destinationPort, 8 + dg.data.bytes.size.toInt, 0))
       chksum = checksum(encHeader ++ dg.data)
     } yield encHeader.dropRight(16) ++ chksum ++ dg.data
 

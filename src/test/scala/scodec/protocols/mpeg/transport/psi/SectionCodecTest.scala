@@ -62,8 +62,8 @@ class SectionCodecTest extends ProtocolsSpec {
         val encodedSections = sections map { s => sc.encode(s).require }
         val ss0 = encodedSections(0).bytes
         val ss1 = encodedSections(1).bytes
-        val indexOfInt = ss0.toIndexedSeq.zipWithIndex.find { case (x, idx) => ss1(idx) != x }.map { case (x, idx) => idx }.get
-        val ss255 = ss0.update(indexOfInt, 255.toByte)
+        val indexOfInt = ss0.toIndexedSeq.zipWithIndex.find { case (x, idx) => ss1(idx.toLong) != x }.map { case (x, idx) => idx }.get
+        val ss255 = ss0.update(indexOfInt.toLong, 255.toByte)
 
         val packets = Packet.packetizeMany(Pid(0), ContinuityCounter(0), ss255.bits +: encodedSections)
         val p = Process.emitAll(packets).toSource pipe Demultiplexer.demultiplex(sc)
