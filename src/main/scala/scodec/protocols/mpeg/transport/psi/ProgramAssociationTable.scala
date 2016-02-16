@@ -2,8 +2,6 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import fs2._
-
 import scodec.Codec
 import scodec.codecs._
 

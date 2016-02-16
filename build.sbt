@@ -16,8 +16,6 @@ libraryDependencies ++= Seq(
   "org.scalacheck" %% "scalacheck" % "1.12.0" % "test"
 )
 
-scalacOptions -= "-Ywarn-unused-import" // TODO
-
 libraryDependencies ++= {
   if (scalaBinaryVersion.value startsWith "2.10") Seq(compilerPlugin("org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full)) else Nil
 }
