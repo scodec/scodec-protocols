@@ -20,5 +20,5 @@ object DatagramHeader {
 
   def sdecoder(protocol: Int): StreamDecoder[DatagramHeader] =
     if (protocol == ip.Protocols.Udp) decode.once[DatagramHeader]
-    else decode.halt
+    else decode.empty
 }

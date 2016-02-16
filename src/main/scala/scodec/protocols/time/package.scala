@@ -1,22 +1,23 @@
 package scodec
+package protocols
 
-import scalaz.\/
-import scalaz.concurrent.Task
-import scalaz.stream.{ Process, Process1 }
+import language.higherKinds
 
-package object protocols {
+import fs2.{ Stream, Process1 }
+
+package object time {
 
   /**
    * A single value in a `TimeSeries`. Provides a timestamp along with either a value of type `A` or
-   * a clock tick (represented by a left unit).
+   * a clock tick (represented by a none).
    */
-  type TimeSeriesValue[+A] = TimeStamped[Unit \/ A]
+  type TimeSeriesValue[+A] = TimeStamped[Option[A]]
 
   /**
    * A stream of timestamped values or clock ticks.
    *
-   * Values are represented as right values in a `TimeStamped[Unit \/ A]`, whereas
-   * clock ticks are represented as left values. This encoding allows for an indication
+   * Values are represented as right values in a `TimeStamped[Option[A]]`, whereas
+   * clock ticks are represented as nones. This encoding allows for an indication
    * of time passage with no observed values.
    *
    * Generally, time series appear in increasing order, and many combinators that work with
@@ -24,7 +25,7 @@ package object protocols {
    * i.e., near adjacent values might be out of order but values at great distance from each other
    * are ordered, consider using `TimeStamped.reorderLocally` to adjust.
    */
-  type TimeSeries[+A] = Process[Task, TimeSeriesValue[A]]
+  type TimeSeries[F[_], +A] = Stream[F, TimeSeriesValue[A]]
 
   /** Alias for a stream transducer on time series values. */
   type TimeSeriesTransducer[-A, +B] = Process1[TimeSeriesValue[A], TimeSeriesValue[B]]

@@ -1,14 +1,13 @@
 package scodec.protocols
 package pcap
 
-import scalaz.\/
-import scalaz.\/.{ left, right }
 import scodec.{ Codec, Decoder, Err }
 import scodec.bits.BitVector
 import scodec.codecs._
 import scodec.stream._
 
 import scodec.{ Codec, Attempt, DecodeResult }
+import scodec.protocols.time._
 import scodec.stream.decode.DecodingError
 
 import shapeless.Lazy
@@ -29,27 +28,27 @@ object CaptureFile {
   def payloadStreamDecoder[A](chunkSize: Int = 256)(linkDecoders: LinkType => Option[StreamDecoder[A]]): StreamDecoder[TimeStamped[A]] =
     streamDecoder(chunkSize) { global =>
       linkDecoders(global.network) match {
-        case None => left(Err(s"unsupported link type ${global.network}"))
-        case Some(decoder) => right {
-          hdr => decoder map { value => TimeStamped(hdr.timestamp plus (global.thiszone * 1000L), value) }
+        case None => Left(Err(s"unsupported link type ${global.network}"))
+        case Some(decoder) => Right {
+          hdr => decoder map { value => TimeStamped(hdr.timestamp plusMillis (global.thiszone * 1000L), value) }
         }
       }
     }
 
   def recordStreamDecoder(chunkSize: Int = 256): StreamDecoder[Record] =
-    streamDecoder[Record](chunkSize) { global => right { hdr =>
+    streamDecoder[Record](chunkSize) { global => Right { hdr =>
       decode.once(bits) map { bs =>
         Record(hdr.copy(timestampSeconds = hdr.timestampSeconds + global.thiszone), bs)
       }
     }}
 
-  def streamDecoder[A](chunkSize: Int = 256)(f: GlobalHeader => Err \/ (RecordHeader => StreamDecoder[A])): StreamDecoder[A] = for {
+  def streamDecoder[A](chunkSize: Int = 256)(f: GlobalHeader => Either[Err, (RecordHeader => StreamDecoder[A])]): StreamDecoder[A] = for {
     global <- decode.once[GlobalHeader]
     decoderFn <- f(global).fold(decode.fail, decode.emit)
     recordDecoder =
       RecordHeader.codec(global.ordering) flatMap { header =>
         decode.isolateBytes(header.includedLength) { decoderFn(header) }.strict
       }
-    values <- decode.manyChunked(chunkSize)(Lazy(recordDecoder)).flatMap(x => decode.emitAll(x))
+    values <- decode.manyChunked(chunkSize)(Lazy(recordDecoder)).flatMap(x => decode.emits(x))
   } yield values
 }

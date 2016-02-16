@@ -2,9 +2,6 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.{ \/, -\/, \/- }
-import \/.{ left, right }
-
 import scodec.{ Attempt, Codec, Decoder, DecodeResult, DecodingContext, Err, SizeBound }
 import scodec.bits._
 import scodec.codecs._

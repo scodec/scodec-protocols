@@ -6,8 +6,8 @@ package transport
 import scodec.Codec
 import scodec.codecs.uint
 
-import scalaz.{ Lens, LensFamily }
-import scalaz.stream.Process1
+import fs2._
+import fs2.process1.Stepper
 
 case class Pid(value: Int) {
   require(value >= Pid.MinValue && value <= Pid.MaxValue)
@@ -26,18 +26,25 @@ case class PidStamped[+A](pid: Pid, value: A) {
 
 object PidStamped {
 
-  object Lenses {
-    def Pid[A]: Lens[PidStamped[A], Pid] = Lens.lensu((ps, p) => ps.copy(pid = p), _.pid)
-    def Value[A]: Lens[PidStamped[A], A] = Lens.lensu((ps, a) => ps.copy(value = a), _.value)
-
-    def ValueMap[A, B]: LensFamily[PidStamped[A], PidStamped[B], A, B] =
-      Lens.lensFamilyu((psa, b) => PidStamped(psa.pid, b), _.value)
-  }
-
   /**
    * Combinator that converts a `Process1[A, B]` in to a `Process1[PidStamped[A], PidStamped[B]]` such that
    * pidstamps are preserved on elements that flow through the process.
    */
-  def preservePidStamps[A, B](p: Process1[A, B]): Process1[PidStamped[A], PidStamped[B]] =
-    process1ext.lensf(Lenses.ValueMap[A, B])(p)
+  def preservePidStamps[A, B](p: Process1[A, B]): Process1[PidStamped[A], PidStamped[B]] = {
+    def go(pid: Option[Pid], stepper: Stepper[A, B]): Stream.Handle[Pure, PidStamped[A]] => Pull[Pure, PidStamped[B], Stream.Handle[Pure, PidStamped[A]]] = { h =>
+      stepper.step match {
+        case Stepper.Done => Pull.done
+        case Stepper.Fail(err) => Pull.fail(err)
+        case Stepper.Emits(chunk, next) =>
+          pid match {
+            case Some(p) => Pull.output(chunk.map { b => PidStamped(p, b) }) >> go(pid, next)(h)
+            case None => go(pid, next)(h)
+          }
+        case Stepper.Await(receive) =>
+          h.receive1 { case psa #: tl => go(Some(psa.pid), receive(Some(Chunk.singleton(psa.value))))(tl) }
+      }
+    }
+
+    _ pull go(None, process1.stepper(p))
+  }
 }

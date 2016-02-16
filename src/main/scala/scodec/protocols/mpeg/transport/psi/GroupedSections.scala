@@ -4,62 +4,75 @@ package transport
 package psi
 
 import scala.reflect.ClassTag
-import scalaz.{ \/, \/-, -\/, NonEmptyList, Tag, Tags }
-import \/.{ left, right }
-import scalaz.std.AllInstances._
-import scalaz.syntax.foldable1._
-import scalaz.syntax.nel._
-import scalaz.stream.{ Cause, Process, Process1, process1 }
 
-/** Group of sections that make up a logical message. Intermediate representation between sections and tables. */
-sealed abstract class GroupedSections {
+import fs2._
+import fs2.process1.Stepper
+
+import process1ext._
+
+/**
+ * Group of sections that make up a logical message.
+ *
+ * Intermediate representation between sections and tables. All sections must share the same table id.
+ */
+sealed abstract class GroupedSections[+A <: Section] {
   def tableId: Int
-  def nel: NonEmptyList[Section]
-  def as[A <: Section : ClassTag]: Option[NonEmptyList[A]]
+
+  def head: A
+  def tail: List[A]
+
+  def list: List[A]
 }
 
 object GroupedSections {
-  private case class DefaultGroupedSections(tableId: Int, nel: NonEmptyList[Section]) extends GroupedSections {
-    def as[A <: Section : ClassTag]: Option[NonEmptyList[A]] = {
-      if (Tag.unwrap(nel.foldMap1(x => Tags.Conjunction(x match { case _: A => true; case _ => false }))))
-        Some(nel.asInstanceOf[NonEmptyList[A]])
+  implicit class InvariantOps[A <: Section](val self: GroupedSections[A]) extends AnyVal {
+    def narrow[B <: A : ClassTag]: Option[GroupedSections[B]] = {
+      val matched = self.list.foldLeft(true) { (acc, s) => s match { case _: B => true; case _ => false } }
+      if (matched) Some(self.asInstanceOf[GroupedSections[B]])
       else None
     }
   }
 
-  def apply(tableId: Int, sections: NonEmptyList[Section]): GroupedSections =
-    DefaultGroupedSections(tableId, sections)
+  private case class DefaultGroupedSections[A <: Section](head: A, tail: List[A]) extends GroupedSections[A] {
+    val tableId = head.tableId
+    val list = head :: tail
+  }
 
-  def groupExtendedSections[A <: ExtendedSection]: Process1[A, GroupingError \/ NonEmptyList[A]] = {
+  def apply[A <: Section](head: A, tail: List[A] = Nil): GroupedSections[A] =
+    DefaultGroupedSections[A](head, tail)
+
+  def groupExtendedSections[A <: ExtendedSection]: Process1[A, Either[GroupingError, GroupedSections[A]]] = {
     type Key = (Int, Int)
     def toKey(section: A): Key = (section.tableId, section.extension.tableIdExtension)
 
-    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]]): Process1[A, GroupingError \/ NonEmptyList[A]] = {
-      Process.await1[A].flatMap { section =>
-        val key = toKey(section)
-        val (err, acc) = accumulatorByIds.get(key) match {
-          case None => (None, SectionAccumulator(section))
-          case Some(acc) =>
-            acc.add(section) match {
-              case \/-(acc) => (None, acc)
-              case -\/(err) =>
-                (Some(err), SectionAccumulator(section))
-            }
-        }
-        val errStream = err.map { e => Process.emit(left(GroupingError(section.tableId, section.extension.tableIdExtension, e))) }.getOrElse(Process.halt)
-        errStream ++ (acc.complete match {
-          case None => go(accumulatorByIds + (key -> acc))
-          case Some(sections) =>
-            Process.emit(right(sections)) ++ go(accumulatorByIds - key)
-        })
+    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]]): Stream.Handle[Pure, A] => Pull[Pure, Either[GroupingError, GroupedSections[A]], Stream.Handle[Pure, A]] = h => {
+      h.receive1 {
+        case section #: tl =>
+          val key = toKey(section)
+          val (err, acc) = accumulatorByIds.get(key) match {
+            case None => (None, SectionAccumulator(section))
+            case Some(acc) =>
+              acc.add(section) match {
+                case Right(acc) => (None, acc)
+                case Left(err) =>
+                  (Some(err), SectionAccumulator(section))
+              }
+          }
+          val maybeOutputErr = err.map { e => Pull.output1(Left(GroupingError(section.tableId, section.extension.tableIdExtension, e))) }.getOrElse(Pull.pure(()))
+          maybeOutputErr >> (acc.complete match {
+            case None => go(accumulatorByIds + (key -> acc))(tl)
+            case Some(sections) =>
+              Pull.output1(Right(sections)) >> go(accumulatorByIds - key)(tl)
+          })
       }
     }
 
-    go(Map.empty)
+    _ pull go(Map.empty)
+
   }
 
-  def noGrouping: Process1[Section, GroupingError \/ GroupedSections] =
-    process1.lift(s => right(GroupedSections(s.tableId, s.wrapNel)))
+  def noGrouping: Process1[Section, Either[GroupingError, GroupedSections[Section]]] =
+    process1.lift(s => Right(GroupedSections(s)))
 
   /**
    * Groups sections in to groups.
@@ -67,7 +80,7 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled.
    * Non-extended sections are emitted as singleton groups.
    */
-  def group: Process1[Section, GroupingError \/ GroupedSections] = {
+  def group: Process1[Section, Either[GroupingError, GroupedSections[Section]]] = {
     groupGeneral(noGrouping)
   }
 
@@ -77,7 +90,7 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled.
    * The specified `nonExtended` process is used to handle non-extended sections.
    */
-  def groupGeneral(nonExtended: Process1[Section, GroupingError \/ GroupedSections]): Process1[Section, GroupingError \/ GroupedSections] = {
+  def groupGeneral(nonExtended: Process1[Section, Either[GroupingError, GroupedSections[Section]]]): Process1[Section, Either[GroupingError, GroupedSections[Section]]] = {
     groupGeneralConditionally(nonExtended, _ => true)
   }
 
@@ -87,25 +100,37 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled if `true` is returned from the
    * `groupExtended` function when applied with the section in question.
    *
-   * The specified `nonExtended` process is used to handle non-extended sections.
+   * The specified `nonExtended` transducer is used to handle non-extended sections.
    */
-  def groupGeneralConditionally(nonExtended: Process1[Section, GroupingError \/ GroupedSections], groupExtended: ExtendedSection => Boolean = _ => true): Process1[Section, GroupingError \/ GroupedSections] = {
+  def groupGeneralConditionally(nonExtended: Process1[Section, Either[GroupingError, GroupedSections[Section]]], groupExtended: ExtendedSection => Boolean = _ => true): Process1[Section, Either[GroupingError, GroupedSections[Section]]] = {
+
+    type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Stream.Handle[Pure, Section]]
+
     def go(
-      ext: Process1[ExtendedSection, GroupingError \/ GroupedSections],
-      nonExt: Process1[Section, GroupingError \/ GroupedSections]
-    ): Process1[Section, GroupingError \/ GroupedSections] = {
-      Process.receive1Or[Section, GroupingError \/ GroupedSections](ext.disconnect(Cause.Kill) ++ nonExt.disconnect(Cause.Kill)) {
-        case s: ExtendedSection if groupExtended(s) =>
-          val (out, next) = process1.feed1(s)(ext).unemit
-          Process.emitAll(out) ++ go(next, nonExt)
-        case s: Section =>
-          val (out, next) = process1.feed1(s)(nonExt).unemit
-          Process.emitAll(out) ++ go(ext, next)
+      ext: Stepper.Await[ExtendedSection, Either[GroupingError, GroupedSections[ExtendedSection]]],
+      nonExt: Stepper.Await[Section, Either[GroupingError, GroupedSections[Section]]]
+    ): Stream.Handle[Pure, Section] => ThisPull = h => {
+      h.receive1 {
+        case section #: tl =>
+          section match {
+            case s: ExtendedSection if groupExtended(s) =>
+              ext.receive(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+                Pull.output(Chunk.indexedSeq(out)) >> go(next, nonExt)(tl)
+              }
+            case s: Section =>
+              nonExt.receive(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+                Pull.output(Chunk.indexedSeq(out)) >> go(ext, next)(tl)
+              }
+          }
       }
     }
-    val des: Process1[ExtendedSection, GroupingError \/ GroupedSections] = groupExtendedSections.map { _ map { sections =>
-      GroupedSections(sections.head.tableId, sections)
-    }}
-    go(des, nonExtended)
+
+    _ pull { h =>
+      process1.stepper(groupExtendedSections[ExtendedSection]).stepToAwait { (out1, ext) =>
+        process1.stepper(nonExtended).stepToAwait { (out2, nonExt) =>
+          Pull.output(Chunk.indexedSeq(out1 ++ out2)) >> go(ext, nonExt)(h)
+        }
+      }
+    }
   }
 }

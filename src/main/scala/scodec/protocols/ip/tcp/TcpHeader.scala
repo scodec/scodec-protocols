@@ -51,5 +51,5 @@ object TcpHeader {
 
   def sdecoder(protocol: Int): StreamDecoder[TcpHeader] =
     if (protocol == ip.Protocols.Tcp) decode.once[TcpHeader]
-    else decode.halt
+    else decode.empty
 }

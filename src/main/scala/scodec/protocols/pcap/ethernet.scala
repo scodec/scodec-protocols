@@ -1,7 +1,6 @@
 package scodec.protocols
 package pcap
 
-import scalaz.syntax.std.boolean._
 import scodec.Codec
 import scodec.codecs._
 import scodec.stream._
@@ -14,8 +13,8 @@ case class EthernetFrameHeader(
   source: MacAddress,
   ethertypeOrLength: Int
 ) {
-  def length: Option[Int] = (ethertypeOrLength <= 1500).option(ethertypeOrLength)
-  def ethertype: Option[Int] = (ethertypeOrLength > 1500).option(ethertypeOrLength)
+  def length: Option[Int] = if (ethertypeOrLength <= 1500) Some(ethertypeOrLength) else None
+  def ethertype: Option[Int] = if (ethertypeOrLength > 1500) Some(ethertypeOrLength) else None
 }
 
 object EthernetFrameHeader {

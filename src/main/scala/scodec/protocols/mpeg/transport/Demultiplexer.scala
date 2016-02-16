@@ -1,9 +1,7 @@
 package scodec.protocols.mpeg
 package transport
 
-import scalaz.{ \/, -\/, \/- }
-import \/.{ left, right }
-import scalaz.stream.{ Process1, Process }
+import fs2._
 
 import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err, SizeBound }
 import scodec.Decoder
@@ -49,14 +47,14 @@ object Demultiplexer {
     }
   }
 
-  private case class StepResult[+A](state: Option[DecodeState], output: Vector[DemultiplexerError \/ A]) {
+  private case class StepResult[+A](state: Option[DecodeState], output: Vector[Either[DemultiplexerError, A]]) {
     def ++[AA >: A](that: StepResult[AA]): StepResult[AA] = StepResult(that.state, output ++ that.output)
   }
   private object StepResult {
     def noOutput(state: Option[DecodeState]): StepResult[Nothing] = apply(state, Vector.empty)
     def state(state: DecodeState): StepResult[Nothing] = StepResult(Some(state), Vector.empty)
-    def oneResult[A](state: Option[DecodeState], output: A): StepResult[A] = apply(state, Vector(\/.right(output)))
-    def oneError(state: Option[DecodeState], err: DemultiplexerError): StepResult[Nothing] = apply(state, Vector(\/.left(err)))
+    def oneResult[A](state: Option[DecodeState], output: A): StepResult[A] = apply(state, Vector(Right(output)))
+    def oneError(state: Option[DecodeState], err: DemultiplexerError): StepResult[Nothing] = apply(state, Vector(Left(err)))
   }
 
   /**
@@ -73,17 +71,17 @@ object Demultiplexer {
    * Upon noticing a PID discontinuity, an error is emitted and PID decoding state is discarded, resulting in any in-progress
    * section decoding to be lost for that PID.
    */
-  def demultiplex(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] =
+  def demultiplex(sectionCodec: SectionCodec): Process1[Packet, PidStamped[Either[DemultiplexerError, Result]]] =
     demultiplexSectionsAndPesPackets(sectionCodec.decoder, pph => Decoder(b => Attempt.successful(DecodeResult(PesPacket.WithoutHeader(pph.streamId, b), BitVector.empty))))
 
   /** Variant of `demultiplex` that parses PES packet headers. */
-  def demultiplexWithPesHeaders(sectionCodec: SectionCodec): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] =
+  def demultiplexWithPesHeaders(sectionCodec: SectionCodec): Process1[Packet, PidStamped[Either[DemultiplexerError, Result]]] =
     demultiplexSectionsAndPesPackets(sectionCodec.decoder, PesPacket.decoder)
 
   /** Variant of `demultiplex` that allows section and PES decoding to be explicitly specified. */
   def demultiplexSectionsAndPesPackets(
     decodeSectionBody: SectionHeader => Decoder[Section],
-    decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Process1[Packet, PidStamped[DemultiplexerError \/ Result]] = {
+    decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Process1[Packet, PidStamped[Either[DemultiplexerError, Result]]] = {
 
     val stuffingByte = bin"11111111"
 
@@ -129,7 +127,7 @@ object Demultiplexer {
    */
   def demultiplexGeneral[Out](
     decodeHeader: (BitVector, Boolean) => Attempt[DecodeResult[DecodeBody[Out]]]
-  ): Process1[Packet, PidStamped[DemultiplexerError \/ Out]] = {
+  ): Process1[Packet, PidStamped[Either[DemultiplexerError, Out]]] = {
 
     def processBody[A](awaitingBody: DecodeState.AwaitingBody[A], payloadUnitStartAfterData: Boolean): StepResult[Out] = {
       val haveFullBody = awaitingBody.neededBits match {
@@ -144,7 +142,7 @@ object Demultiplexer {
           case Attempt.Failure(err) =>
             val out = {
               if (err.isInstanceOf[ResetDecodeState]) Vector.empty
-              else Vector(\/.left(DemultiplexerError.Decoding(
+              else Vector(Left(DemultiplexerError.Decoding(
                 awaitingBody.headerBits ++
                   awaitingBody.neededBits.
                     map { n => awaitingBody.bitsPostHeader.take(n) }.
@@ -208,19 +206,22 @@ object Demultiplexer {
       }
     }
 
-    def go(state: Map[Pid, DecodeState]): Process1[PidStamped[DemultiplexerError.Discontinuity] \/ Packet, PidStamped[DemultiplexerError \/ Out]] =
-      Process.await1[PidStamped[DemultiplexerError.Discontinuity] \/ Packet].flatMap {
-        case -\/(discontinuity) =>
-          Process.emit(PidStamped(discontinuity.pid, \/.left(discontinuity.value))) ++ go(state - discontinuity.pid)
+    type ThisHandle = Stream.Handle[Pure, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]]
+    type ThisPull = Pull[Pure, PidStamped[Either[DemultiplexerError, Out]], ThisHandle]
 
-        case \/-(packet) =>
+    def go(state: Map[Pid, DecodeState]): ThisHandle => ThisPull = h => {
+      h.receive1 {
+        case Left(discontinuity) #: tl =>
+          Pull.output1(PidStamped(discontinuity.pid, Left(discontinuity.value))) >> go(state - discontinuity.pid)(tl)
+        case Right(packet) #: tl =>
           val pid = packet.header.pid
           val oldStateForPid = state.get(pid)
           val result = handlePacket(oldStateForPid, packet)
           val newState = result.state.map { s => state.updated(pid, s) }.getOrElse(state - pid)
-          Process.emitAll(result.output.map { e => PidStamped(pid, e) }) ++ go(newState)
+          Pull.output(Chunk.indexedSeq(result.output.map { e => PidStamped(pid, e) })) >> go(newState)(tl)
       }
+    }
 
-    Packet.validateContinuity pipe go(Map.empty)
+    Packet.validateContinuity andThen { _ pull go(Map.empty) }
   }
 }

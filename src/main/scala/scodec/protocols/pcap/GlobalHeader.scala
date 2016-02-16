@@ -1,6 +1,5 @@
 package scodec.protocols.pcap
 
-import scalaz.\/.{ left, right }
 import scodec.Err
 import scodec.bits.{ BitVector, ByteOrdering }
 import scodec.{ Attempt, Codec, DecodeResult, SizeBound }

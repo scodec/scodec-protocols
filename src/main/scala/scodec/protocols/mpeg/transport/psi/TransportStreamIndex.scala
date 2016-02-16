@@ -3,10 +3,7 @@ package mpeg
 package transport
 package psi
 
-import scalaz.{ \/, NonEmptyList }
-import \/.{ right, left }
-import scalaz.syntax.std.option._
-import scalaz.stream._
+import fs2._
 
 sealed abstract class TransportStreamIndex {
   import TransportStreamIndex._
@@ -14,18 +11,18 @@ sealed abstract class TransportStreamIndex {
   def pat: Option[ProgramAssociationTable]
   def cat: Option[ConditionalAccessTable]
 
-  def pmt(prg: ProgramNumber): LookupError \/ ProgramMapTable
+  def pmt(prg: ProgramNumber): Either[LookupError, ProgramMapTable]
 
-  def programMapRecords(program: ProgramNumber, streamType: StreamType): LookupError \/ NonEmptyList[ProgramMapRecord] =
+  def programMapRecords(program: ProgramNumber, streamType: StreamType): Either[LookupError, List[ProgramMapRecord]] =
     for {
-      p <- pat \/> LookupError.MissingProgramAssociation
-      _ <- p.programByPid.get(program) \/> LookupError.UnknownProgram
-      q <- pmt(program)
-      pmrs <- q.componentStreamMapping.get(streamType) \/> LookupError.UnknownStreamType
+      p <- pat.toRight(LookupError.MissingProgramAssociation).right
+      _ <- p.programByPid.get(program).toRight(LookupError.UnknownProgram).right
+      q <- pmt(program).right
+      pmrs <- q.componentStreamMapping.get(streamType).toRight(LookupError.UnknownStreamType).right
     } yield pmrs
 
-  def programManRecord(program: ProgramNumber, streamType: StreamType): LookupError \/ ProgramMapRecord =
-    programMapRecords(program, streamType) map { _.head }
+  def programManRecord(program: ProgramNumber, streamType: StreamType): Either[LookupError, ProgramMapRecord] =
+    programMapRecords(program, streamType).right.map { _.head }
 
   def withPat(pat: ProgramAssociationTable): TransportStreamIndex
   def withPmt(pmt: ProgramMapTable): TransportStreamIndex
@@ -49,8 +46,8 @@ object TransportStreamIndex {
     pmts: Map[ProgramNumber, ProgramMapTable]
   ) extends TransportStreamIndex {
 
-    def pmt(prg: ProgramNumber): LookupError \/ ProgramMapTable =
-      pmts.get(prg) \/> LookupError.UnknownProgram
+    def pmt(prg: ProgramNumber): Either[LookupError, ProgramMapTable] =
+      pmts.get(prg).toRight(LookupError.UnknownProgram)
 
     def withPat(pat: ProgramAssociationTable): TransportStreamIndex = {
       val programs = pat.programByPid.keys.toSet
@@ -67,21 +64,27 @@ object TransportStreamIndex {
 
   def empty: TransportStreamIndex = DefaultTransportStreamIndex(None, None, Map.empty)
 
-  def build: Writer1[TransportStreamIndex, Table, Table] = {
-    def go(tsi: TransportStreamIndex): Writer1[TransportStreamIndex, Table, Table] = {
-      def recurse(a: Table, newTsi: TransportStreamIndex): Writer1[TransportStreamIndex, Table, Table] =
-        Process.emit(right(a)) ++ (if (newTsi == tsi) Process.halt else Process.emit(left(newTsi))) ++ go(newTsi)
-
-      Process.await1[Table].flatMap {
-        case pat: ProgramAssociationTable =>
-          recurse(pat, tsi.withPat(pat))
-        case pmt: ProgramMapTable =>
-          recurse(pmt, tsi.withPmt(pmt))
-        case cat: ConditionalAccessTable =>
-          recurse(cat, tsi.withCat(cat))
-        case other => Process.emit(right(other)) ++ go(tsi)
+  def build: Process1[Table, Either[TransportStreamIndex, Table]] = {
+    def go(tsi: TransportStreamIndex): Stream.Handle[Pure, Table] => Pull[Pure, Either[TransportStreamIndex, Table], Stream.Handle[Pure, Table]] = h => {
+      h.receive1 {
+        case section #: tl =>
+          val updatedTsi = section match {
+            case pat: ProgramAssociationTable =>
+              Some(tsi.withPat(pat))
+            case pmt: ProgramMapTable =>
+              Some(tsi.withPmt(pmt))
+            case cat: ConditionalAccessTable =>
+              Some(tsi.withCat(cat))
+            case other => None
+          }
+          updatedTsi match {
+            case Some(newTsi) if newTsi != tsi =>
+              Pull.output1(Right(section)) >> Pull.output1(Left(newTsi)) >> go(newTsi)(tl)
+            case _ =>
+              Pull.output1(Right(section)) >> go(tsi)(tl)
+          }
       }
     }
-    go(TransportStreamIndex.empty)
+    _ pull go(TransportStreamIndex.empty)
   }
 }

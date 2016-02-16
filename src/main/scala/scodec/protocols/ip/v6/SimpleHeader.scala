@@ -33,5 +33,5 @@ object SimpleHeader {
 
   def sdecoder(ethernetHeader: pcap.EthernetFrameHeader): StreamDecoder[SimpleHeader] =
     if (ethernetHeader.ethertype == Some(pcap.EtherType.IPv6)) decode.once[SimpleHeader]
-    else decode.halt
+    else decode.empty
 }

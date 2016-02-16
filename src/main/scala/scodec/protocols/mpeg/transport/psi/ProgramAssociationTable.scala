@@ -2,13 +2,7 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.{ \/, NonEmptyList, Tag, Tags }
-import scalaz.\/.{ left, right }
-import scalaz.std.AllInstances._
-import scalaz.syntax.all._
-import scalaz.syntax.std.option._
-
-import scalaz.stream.Process
+import fs2._
 
 import scodec.Codec
 import scodec.codecs._
@@ -20,14 +14,14 @@ case class ProgramAssociationTable(
   programByPid: Map[ProgramNumber, Pid]
 ) extends Table {
   def tableId = ProgramAssociationSection.TableId
-  def toSections: NonEmptyList[ProgramAssociationSection] = ProgramAssociationTable.toSections(this)
+  def toSections: GroupedSections[ProgramAssociationSection] = ProgramAssociationTable.toSections(this)
 }
 
 object ProgramAssociationTable {
 
   val MaxProgramsPerSection = 253
 
-  def toSections(pat: ProgramAssociationTable): NonEmptyList[ProgramAssociationSection] = {
+  def toSections(pat: ProgramAssociationTable): GroupedSections[ProgramAssociationSection] = {
     val entries = pat.programByPid.toVector.sortBy { case (ProgramNumber(n), _) => n }
     val groupedEntries = entries.grouped(MaxProgramsPerSection).toVector
     val lastSection = groupedEntries.size - 1
@@ -35,36 +29,37 @@ object ProgramAssociationTable {
       ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, idx, lastSection), es)
     }
     if (sections.isEmpty)
-      NonEmptyList(ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, 0, 0), Vector.empty))
+      GroupedSections(ProgramAssociationSection(SectionExtension(pat.tsid.value, pat.version, pat.current, 0, 0), Vector.empty))
     else
-      NonEmptyList(sections.head, sections.tail: _*)
+      GroupedSections(sections.head, sections.tail.toList)
   }
 
-  def fromSections(sections: NonEmptyList[ProgramAssociationSection]): String \/ ProgramAssociationTable = {
-    def extract[A](name: String, f: ProgramAssociationSection => A): String \/ A = {
-      val extracted = sections.map(f).list.distinct
-      if (extracted.size == 1) right(extracted.head)
-      else left(s"sections have diferring $name: " + extracted.mkString(", "))
+  def fromSections(sections: GroupedSections[ProgramAssociationSection]): Either[String, ProgramAssociationTable] = {
+    def extract[A](name: String, f: ProgramAssociationSection => A): Either[String, A] = {
+      val extracted = sections.list.map(f).distinct
+      if (extracted.size == 1) Right(extracted.head)
+      else Left(s"sections have diferring $name: " + extracted.mkString(", "))
     }
     for {
-      tsid <- extract("TSIDs", _.tsid)
-      version <- extract("versions", _.extension.version)
-      current = Tag.unwrap(sections.foldMap { p => Tags.Disjunction(p.extension.current) })
-    } yield ProgramAssociationTable(
-      tsid,
-      version,
-      current,
-      (for {
-        section <- sections.list
-        pidMapping <- section.pidMappings
-      } yield pidMapping).toMap
-    )
+      tsid <- extract("TSIDs", _.tsid).right
+      version <- extract("versions", _.extension.version).right
+    } yield {
+      val current = sections.list.foldLeft(false) { (acc, s) => acc || s.extension.current }
+      ProgramAssociationTable(
+        tsid,
+        version,
+        current,
+        (for {
+          section <- sections.list
+          pidMapping <- section.pidMappings
+        } yield pidMapping).toMap)
+    }
   }
 
   implicit val tableSupport: TableSupport[ProgramAssociationTable] = new TableSupport[ProgramAssociationTable] {
     def tableId = ProgramAssociationSection.TableId
-    def toTable(gs: GroupedSections) =
-      gs.as[ProgramAssociationSection].toRightDisjunction(s"Not PAT sections").flatMap { sections => fromSections(sections) }
+    def toTable(gs: GroupedSections[Section]) =
+      gs.narrow[ProgramAssociationSection].toRight("Not PAT sections").right.flatMap { sections => fromSections(sections) }
     def toSections(pat: ProgramAssociationTable) = ProgramAssociationTable.toSections(pat)
   }
 }

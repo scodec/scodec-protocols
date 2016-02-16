@@ -2,9 +2,6 @@ package scodec.protocols
 package ip
 package v4
 
-import scalaz.\/
-import scalaz.syntax.std.option._
-
 import scodec.bits.ByteVector
 import scodec.Codec
 import scodec.codecs
@@ -18,7 +15,7 @@ case class Address(value: Int) {
 object Address {
   implicit val codec: Codec[Address] = codecs.int32.xmap[Address](v => Address(v), _.value)
 
-  def fromString(str: String): String \/ Address = {
+  def fromString(str: String): Either[String, Address] = {
     val V4Pattern = """^0*([0-9]{1,3})\.0*([0-9]{1,3})\.0*([0-9]{1,3})\.0*([0-9]{1,3})$""".r
     val result = str match {
       case V4Pattern(aa, bb, cc, dd) =>
@@ -29,9 +26,9 @@ object Address {
       case other =>
         None
     }
-    result.toRightDisjunction(s"invalid IPv4 address: $str")
+    result.fold(Left(s"invalid IPv4 address: $str"): Either[String, Address])(Right(_))
   }
 
   def fromStringValid(str: String): Address =
-    fromString(str).valueOr { err => throw new IllegalArgumentException(err) }
+    fromString(str).fold(err => throw new IllegalArgumentException(err), identity)
 }

@@ -2,11 +2,6 @@ package scodec.protocols.mpeg
 package transport
 package psi
 
-import scalaz.{ \/, NonEmptyList, Tag, Tags }
-import scalaz.\/.{ left, right }
-import scalaz.std.AllInstances._
-import scalaz.syntax.foldable._
-import scalaz.syntax.std.option._
 import scodec.Codec
 import scodec.bits._
 import scodec.codecs._
@@ -14,24 +9,24 @@ import scodec.codecs._
 case class ConditionalAccessTable(
   version: Int,
   current: Boolean,
-  descriptors: Vector[ConditionalAccessDescriptor]
+  descriptors: List[ConditionalAccessDescriptor]
 ) extends Table {
   def tableId = ConditionalAccessSection.TableId
-  def toSections: NonEmptyList[ConditionalAccessSection] = ConditionalAccessTable.toSections(this)
+  def toSections: GroupedSections[ConditionalAccessSection] = ConditionalAccessTable.toSections(this)
 }
 
 object ConditionalAccessTable {
 
-  def toSections(cat: ConditionalAccessTable): NonEmptyList[ConditionalAccessSection] = {
-    val grouped = groupBasedOnSize(cat.descriptors)
+  def toSections(cat: ConditionalAccessTable): GroupedSections[ConditionalAccessSection] = {
+    val grouped = groupBasedOnSize(cat.descriptors.toVector)
     val lastSection = grouped.size - 1
     val sections = grouped.zipWithIndex.map { case (ds, idx) =>
-      ConditionalAccessSection(SectionExtension(65535, cat.version, cat.current, idx, lastSection), ds)
+      ConditionalAccessSection(SectionExtension(65535, cat.version, cat.current, idx, lastSection), ds.toList)
     }
     if (sections.isEmpty)
-      NonEmptyList(ConditionalAccessSection(SectionExtension(65535, cat.version, cat.current, 0, 0), Vector.empty))
+      GroupedSections(ConditionalAccessSection(SectionExtension(65535, cat.version, cat.current, 0, 0), Nil))
     else
-      NonEmptyList(sections.head, sections.tail: _*)
+      GroupedSections(sections.head, sections.tail.toList)
   }
 
   private def groupBasedOnSize(sections: Vector[ConditionalAccessDescriptor]): Vector[Vector[ConditionalAccessDescriptor]] = {
@@ -53,33 +48,38 @@ object ConditionalAccessTable {
     go(sections, Vector.empty, MaxBitsLeft, Vector.empty)
   }
 
-  def fromSections(sections: NonEmptyList[ConditionalAccessSection]): String \/ ConditionalAccessTable = {
-    def extract[A](name: String, f: ConditionalAccessSection => A): String \/ A = {
-      val extracted = sections.map(f).list.distinct
-      if (extracted.size == 1) right(extracted.head)
-      else left(s"sections have diferring $name: " + extracted.mkString(", "))
+  def fromSections(sections: GroupedSections[ConditionalAccessSection]): Either[String, ConditionalAccessTable] = {
+    def extract[A](name: String, f: ConditionalAccessSection => A): Either[String, A] = {
+      val extracted = sections.list.map(f).distinct
+      if (extracted.size == 1) Right(extracted.head)
+      else Left(s"sections have diferring $name: " + extracted.mkString(", "))
     }
     for {
-      version <- extract("versions", _.extension.version)
-      current = Tag.unwrap(sections.foldMap { p => Tags.Disjunction(p.extension.current) })
-    } yield ConditionalAccessTable(
-      version,
-      current,
-      sections.foldMap { _.descriptors }
-    )
+      version <- extract("versions", _.extension.version).right
+    } yield {
+      val current = sections.list.foldLeft(false) { (acc, s) => acc || s.extension.current }
+      ConditionalAccessTable(
+        version,
+        current,
+        (for {
+          section <- sections.list
+          descriptor <- section.descriptors
+        } yield descriptor)
+      )
+    }
   }
 
   implicit val tableSupport: TableSupport[ConditionalAccessTable] = new TableSupport[ConditionalAccessTable] {
     def tableId = ConditionalAccessSection.TableId
-    def toTable(gs: GroupedSections) =
-      gs.as[ConditionalAccessSection].toRightDisjunction(s"Not CAT sections").flatMap { sections => fromSections(sections) }
+    def toTable(gs: GroupedSections[Section]) =
+      gs.narrow[ConditionalAccessSection].toRight(s"Not CAT sections").right.flatMap { sections => fromSections(sections) }
     def toSections(cat: ConditionalAccessTable) = ConditionalAccessTable.toSections(cat)
   }
 }
 
 case class ConditionalAccessSection(
   extension: SectionExtension,
-  descriptors: Vector[ConditionalAccessDescriptor]
+  descriptors: List[ConditionalAccessDescriptor]
 ) extends ExtendedSection {
   def tableId = ConditionalAccessSection.TableId
 }
@@ -87,10 +87,10 @@ case class ConditionalAccessSection(
 object ConditionalAccessSection {
   val TableId = 1
 
-  type Fragment = Vector[ConditionalAccessDescriptor]
+  type Fragment = List[ConditionalAccessDescriptor]
 
   private val fragmentCodec: Codec[Fragment] =
-    vector(Codec[ConditionalAccessDescriptor])
+    list(Codec[ConditionalAccessDescriptor])
 
   implicit val sectionFragmentCodec: SectionFragmentCodec[ConditionalAccessSection] =
     SectionFragmentCodec.psi[ConditionalAccessSection, Fragment](

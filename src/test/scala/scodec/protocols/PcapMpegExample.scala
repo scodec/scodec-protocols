@@ -1,5 +1,6 @@
 package scodec.protocols
 
+import scodec.protocols.time.TimeStamped
 import scodec.stream.StreamDecoder
 import scodec.stream.decode
 import pcap.{ CaptureFile, LinkType }
@@ -33,5 +34,5 @@ object PcapMpegExample extends App {
       } yield packets
   }
 
-  decoder.decodeMmap(mpegPcapChannel).runLog.run.foreach(println)
+  decoder.decodeMmap(mpegPcapChannel).runLog.run.run.foreach(println)
 }

@@ -4,9 +4,6 @@ package v6
 
 import scala.util.Try
 
-import scalaz.\/
-import scalaz.syntax.std.option._
-
 import scodec.bits._
 import scodec.Codec
 import scodec.codecs
@@ -40,7 +37,7 @@ case class Address(bytes: ByteVector) {
 object Address {
   implicit val codec: Codec[Address] = codecs.bytes(16).as[Address]
 
-  def fromString(str: String): String \/ Address = {
+  def fromString(str: String): Either[String, Address] = {
     // FIXME: this implementation erroneously supports hostnames and can be slow as a result
     val result = Try {
       java.net.InetAddress.getByName(str) match {
@@ -48,9 +45,9 @@ object Address {
         case v4: java.net.Inet4Address => ip.v4.Address(ByteVector(v4.getAddress).toInt()).toV6
       }
     }.toOption
-    result.toRightDisjunction(s"invalid IPv6 address: $str")
+    result.map(Right.apply).getOrElse(Left(s"invalid IPv6 address: $str"))
   }
 
   def fromStringValid(str: String): Address =
-    fromString(str).valueOr { err => throw new IllegalArgumentException(err) }
+    fromString(str).fold(err => throw new IllegalArgumentException(err), identity)
 }

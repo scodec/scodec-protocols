@@ -3,34 +3,35 @@ package mpeg
 package transport
 package psi
 
-import scalaz.{ \/, \/-, -\/, NonEmptyList }
-import \/.{ left, right }
-import scalaz.stream._
-import scalaz.syntax.std.option._
-
+import fs2._
 import shapeless.Typeable
 
 case class TableBuildingError(tableId: Int, message: String) extends MpegError
 
 class TableBuilder private (cases: Map[Int, List[TableSupport[_]]]) {
 
-  def supporting[T <: Table : TableSupport]: TableBuilder = {
-    val ts = implicitly[TableSupport[T]]
+  def supporting[T <: Table](implicit ts: TableSupport[T]): TableBuilder = {
     val newCases = ts :: cases.getOrElse(ts.tableId, Nil)
     new TableBuilder(cases + (ts.tableId -> newCases))
   }
 
-  def sectionsToTables: Process1[GroupedSections, TableBuildingError \/ Table] = {
-    Process.await1[GroupedSections].flatMap { gs =>
-      cases.get(gs.tableId) match {
-        case None | Some(Nil) => Process.halt
-        case Some(list) =>
-          list.dropRight(1).foldRight[String \/ _](list.last.toTable(gs)) { (next, res) => res orElse next.toTable(gs) } match {
-            case \/-(table) => Process.emit(right(table.asInstanceOf[Table]))
-            case -\/(err) => Process.emit(left(TableBuildingError(gs.tableId, err)))
+  def sectionsToTables: Process1[GroupedSections[Section], Either[TableBuildingError, Table]] = {
+    def go: Stream.Handle[Pure, GroupedSections[Section]] => Pull[Pure, Either[TableBuildingError, Table], Stream.Handle[Pure, GroupedSections[Section]]] = h => {
+      h.receive1 {
+        case gs #: tl =>
+          cases.get(gs.tableId) match {
+            case None | Some(Nil) =>
+              Pull.output1(Left(TableBuildingError(gs.tableId, "Unknown table id"))) >> go(tl)
+            case Some(list) =>
+              list.dropRight(1).foldRight[Either[String, _]](list.last.toTable(gs)) { (next, res) => res.fold(_ => next.toTable(gs), Right(_)) } match {
+                case Right(table) => Pull.output1(Right(table.asInstanceOf[Table])) >> go(tl)
+                case Left(err) => Pull.output1(Left(TableBuildingError(gs.tableId, err))) >> go(tl)
+              }
+            }
           }
       }
-    }.repeat
+
+    _ pull go
   }
 }
 
@@ -48,8 +49,8 @@ object TableBuilder {
 
 trait TableSupport[T <: Table] {
   def tableId: Int
-  def toTable(gs: GroupedSections): String \/ T
-  def toSections(t: T): NonEmptyList[Section]
+  def toTable(gs: GroupedSections[Section]): Either[String, T]
+  def toSections(t: T): GroupedSections[Section]
 }
 
 object TableSupport {
@@ -58,12 +59,12 @@ object TableSupport {
     val tid = tableId
     new TableSupport[A] {
       def tableId = tid
-      def toTable(gs: GroupedSections) =
-        gs.as[A].toRightDisjunction(s"Not a ${t.describe}").flatMap { sections =>
-          if (sections.tail.isEmpty) \/.right(sections.head)
-          else \/.left(s"${t.describe} supports only 1 section but got ${sections.list.size}")
+      def toTable(gs: GroupedSections[Section]) =
+        gs.narrow[A].toRight(s"Not a ${t.describe}").right.flatMap { sections =>
+          if (sections.tail.isEmpty) Right(sections.head)
+          else Left(s"${t.describe} supports only 1 section but got ${sections.list.size}")
         }
-      def toSections(table: A) = NonEmptyList(table)
+      def toSections(table: A) = GroupedSections(table)
     }
   }
 }

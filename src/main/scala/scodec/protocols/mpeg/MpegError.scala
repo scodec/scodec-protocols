@@ -1,11 +1,11 @@
 package scodec.protocols
 package mpeg
 
-import scalaz.{ \/, \/-, -\/ }
-import \/.{ left, right }
-import scalaz.stream.{ Process1, process1 }
+import fs2._
 import scodec.Err
 import scodec.bits.BitVector
+
+import process1ext._
 
 trait MpegError {
   def message: String
@@ -21,12 +21,12 @@ object MpegError {
     override def toString = message
   }
 
-  def joinErrors[A, B](p: Process1[A, MpegError \/ B]): Process1[MpegError \/ A, MpegError \/ B] =
-    process1ext.conditionallyFeed(p, {
-      case \/-(a) => left(a)
-      case e @ -\/(_) => right(e)
-    })
+  def joinErrors[A, B](p: Process1[A, Either[MpegError, B]]): Process1[Either[MpegError, A], Either[MpegError, B]] =
+    p.conditionallyFeed {
+      case Right(a) => Left(a)
+      case e @ Left(_) => Right(e.asInstanceOf[Either[MpegError, B]])
+    }
 
-  def passErrors[A, B](p: Process1[A, B]): Process1[MpegError \/ A, MpegError \/ B] =
-    process1.liftR(p)
+  def passErrors[A, B](p: Process1[A, B]): Process1[Either[MpegError, A], Either[MpegError, B]] =
+    p.liftR
 }
