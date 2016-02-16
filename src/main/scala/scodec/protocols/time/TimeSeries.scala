@@ -55,13 +55,30 @@ object TimeSeries {
     }
   }
 
-  // /**
-  //  * Combinator that converts a `Process1[A, B]` in to a `TimeSeriesTransducer[A, B]` such that
-  //  * timestamps are preserved on elements that flow through the process.
-  //  */
-  // def preserve[A, B](p: Process1[A, B]): TimeSeriesTransducer[A, B] =
-  //   TimeStamped.preserveTimeStamps(p andThen process1.liftR[Unit])
-  // TODO - needs process1.liftR
+  /**
+   * Combinator that converts a `Process1[A, B]` in to a `TimeSeriesTransducer[A, B]` such that
+   * timestamps are preserved on elements that flow through the process.
+   */
+  def preserve[A, B](p: Process1[A, B]): TimeSeriesTransducer[A, B] = {
+    def go(stepper: Stepper[A, B]): Stream.Handle[Pure, Option[A]] => Pull[Pure, Option[B], Stream.Handle[Pure, Option[A]]] = h => {
+      stepper.step match {
+        case Stepper.Done => Pull.done
+        case Stepper.Fail(err) => Pull.fail(err)
+        case Stepper.Emits(chunk, next) =>
+          Pull.output(chunk.map(Some(_))) >> go(next)(h)
+        case Stepper.Await(receive) =>
+          h.receive1 { case hd #: tl =>
+            hd match {
+              case None =>
+                Pull.output1(None) >> go(stepper)(h)
+              case Some(a) =>
+                go(receive(Some(Chunk.singleton(a))))(h)
+            }
+          }
+      }
+    }
+    TimeStamped.preserveTimeStamps(_ pull go(process1.stepper(p)))
+  }
 
   /**
    * Combinator that converts a `Process1[TimeStamped[A], TimeStamped[B]]` in to a `TimesSeriesTransducer[A, B]` such that
