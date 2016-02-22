@@ -9,9 +9,9 @@ class TimeSeriesTransducerTest extends ProtocolsSpec {
   "the TimeSeriesTransducer type" should {
 
     "support combining two transducers via an either" in {
-      val add1: TimeSeriesTransducer[Int, Int] = TimeSeriesTransducer.lift(_ + 1)
-      val add2: TimeSeriesTransducer[Int, Int] = TimeSeriesTransducer.lift(_ + 2)
-      val x: TimeSeriesTransducer[Either[Int, Int], Int] = TimeSeriesTransducer.either(add1, add2)
+      val add1: TimeSeriesTransducer[Pure, Int, Int] = TimeSeriesTransducer.lift(_ + 1)
+      val add2: TimeSeriesTransducer[Pure, Int, Int] = TimeSeriesTransducer.lift(_ + 2)
+      val x: TimeSeriesTransducer[Pure, Either[Int, Int], Int] = TimeSeriesTransducer.either(add1, add2)
       val source: TimeSeries[Pure, Either[Int, Int]] =
         Stream(
           TimeStamped(Instant.ofEpochMilli(0), Right(1)),

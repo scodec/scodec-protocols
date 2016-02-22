@@ -107,18 +107,18 @@ object GroupedSections {
     type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Stream.Handle[Pure, Section]]
 
     def go(
-      ext: Stepper.Await[ExtendedSection, Either[GroupingError, GroupedSections[ExtendedSection]]],
-      nonExt: Stepper.Await[Section, Either[GroupingError, GroupedSections[Section]]]
+      ext: Option[Chunk[ExtendedSection]] => Stepper[ExtendedSection, Either[GroupingError, GroupedSections[ExtendedSection]]],
+      nonExt: Option[Chunk[Section]] => Stepper[Section, Either[GroupingError, GroupedSections[Section]]]
     ): Stream.Handle[Pure, Section] => ThisPull = h => {
       h.receive1 {
         case section #: tl =>
           section match {
             case s: ExtendedSection if groupExtended(s) =>
-              ext.receive(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+              ext(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
                 Pull.output(Chunk.indexedSeq(out)) >> go(next, nonExt)(tl)
               }
             case s: Section =>
-              nonExt.receive(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+              nonExt(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
                 Pull.output(Chunk.indexedSeq(out)) >> go(ext, next)(tl)
               }
           }

@@ -56,10 +56,10 @@ object TimeSeries {
   }
 
   /**
-   * Combinator that converts a `Process1[A, B]` in to a `TimeSeriesTransducer[A, B]` such that
+   * Combinator that converts a `Process1[A, B]` in to a `TimeSeriesTransducer[Pure, A, B]` such that
    * timestamps are preserved on elements that flow through the process.
    */
-  def preserve[A, B](p: Process1[A, B]): TimeSeriesTransducer[A, B] = {
+  def preserve[A, B](p: Process1[A, B]): TimeSeriesTransducer[Pure, A, B] = {
     def go(stepper: Stepper[A, B]): Stream.Handle[Pure, Option[A]] => Pull[Pure, Option[B], Stream.Handle[Pure, Option[A]]] = h => {
       stepper.step match {
         case Stepper.Done => Pull.done
@@ -84,7 +84,7 @@ object TimeSeries {
    * Combinator that converts a `Process1[TimeStamped[A], TimeStamped[B]]` in to a `TimesSeriesTransducer[A, B]` such that
    * timestamps are preserved on elements that flow through the process.
    */
-  def preserveTicks[A, B](p: Process1[TimeStamped[A], TimeStamped[B]]): TimeSeriesTransducer[A, B] = {
+  def preserveTicks[A, B](p: Process1[TimeStamped[A], TimeStamped[B]]): TimeSeriesTransducer[Pure, A, B] = {
     def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]]): Stream.Handle[Pure, TimeSeriesValue[A]] => Pull[Pure, TimeSeriesValue[B], Stream.Handle[Pure, TimeSeriesValue[A]]] = h => {
       stepper.step match {
         case Stepper.Done => Pull.done

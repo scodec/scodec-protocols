@@ -3,7 +3,7 @@ package protocols
 
 import language.higherKinds
 
-import fs2.{ Stream, Process1 }
+import fs2.Stream
 
 package object time {
 
@@ -28,5 +28,5 @@ package object time {
   type TimeSeries[F[_], +A] = Stream[F, TimeSeriesValue[A]]
 
   /** Alias for a stream transducer on time series values. */
-  type TimeSeriesTransducer[-A, +B] = Process1[TimeSeriesValue[A], TimeSeriesValue[B]]
+  type TimeSeriesTransducer[F[_], -A, +B] = Stream[F, TimeSeriesValue[A]] => Stream[F, TimeSeriesValue[B]]
 }

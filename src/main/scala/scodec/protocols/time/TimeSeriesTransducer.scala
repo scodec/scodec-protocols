@@ -10,10 +10,10 @@ import process1ext._
 /** Companion for [[TimeSeriesTransducer]]. */
 object TimeSeriesTransducer {
 
-  def lift[A, B](f: A => B): TimeSeriesTransducer[A, B] =
+  def lift[A, B](f: A => B): TimeSeriesTransducer[Pure, A, B] =
     process1.lift { _ map { _ map f } }
 
-  def either[L, R, O](left: TimeSeriesTransducer[L, O], right: TimeSeriesTransducer[R, O]): TimeSeriesTransducer[Either[L, R], O] = {
+  def either[L, R, O](left: TimeSeriesTransducer[Pure, L, O], right: TimeSeriesTransducer[Pure, R, O]): TimeSeriesTransducer[Pure, Either[L, R], O] = {
 
     type ThisPull = Pull[Pure, TimeSeriesValue[O], Stream.Handle[Pure, TimeSeriesValue[Either[L, R]]]]
 
@@ -21,7 +21,8 @@ object TimeSeriesTransducer {
       left: Stepper[TimeSeriesValue[L], TimeSeriesValue[O]],
       right: Stepper[TimeSeriesValue[R], TimeSeriesValue[O]]
     )(
-      cont: (Stepper.Await[TimeSeriesValue[L], TimeSeriesValue[O]], Stepper.Await[TimeSeriesValue[R], TimeSeriesValue[O]]) => ThisPull
+      cont: (Option[Chunk[TimeSeriesValue[L]]] => Stepper[TimeSeriesValue[L], TimeSeriesValue[O]],
+             Option[Chunk[TimeSeriesValue[R]]] => Stepper[TimeSeriesValue[R], TimeSeriesValue[O]]) => ThisPull
     ): ThisPull = {
       left.stepToAwait { (outL, l) =>
         right.stepToAwait { (outR, r) =>
@@ -39,24 +40,24 @@ object TimeSeriesTransducer {
     }
 
     def go(
-      leftAwait: Stepper.Await[TimeSeriesValue[L], TimeSeriesValue[O]],
-      rightAwait: Stepper.Await[TimeSeriesValue[R], TimeSeriesValue[O]]
+      leftAwait: Option[Chunk[TimeSeriesValue[L]]] =>Stepper[TimeSeriesValue[L], TimeSeriesValue[O]],
+      rightAwait: Option[Chunk[TimeSeriesValue[R]]] => Stepper[TimeSeriesValue[R], TimeSeriesValue[O]]
     ): Stream.Handle[Pure, TimeSeriesValue[Either[L, R]]] => ThisPull = h => {
       h.receive1 {
         case value #: next =>
           value match {
             case TimeStamped(ts, Some(Left(l))) =>
-              leftAwait.receive(Some(Chunk.singleton(TimeStamped(ts, Some(l))))).stepToAwait { (out, newLeftAwait) =>
+              leftAwait(Some(Chunk.singleton(TimeStamped(ts, Some(l))))).stepToAwait { (out, newLeftAwait) =>
                 Pull.output(Chunk.indexedSeq(out)) >> go(newLeftAwait, rightAwait)(next)
               }
             case TimeStamped(ts, Some(Right(r))) =>
-              rightAwait.receive(Some(Chunk.singleton(TimeStamped(ts, Some(r))))).stepToAwait { (out, newRightAwait) =>
+              rightAwait(Some(Chunk.singleton(TimeStamped(ts, Some(r))))).stepToAwait { (out, newRightAwait) =>
                 Pull.output(Chunk.indexedSeq(out)) >> go(leftAwait, newRightAwait)(next)
               }
             case TimeStamped(ts, None) =>
               gatherBoth(
-                leftAwait.receive(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[L]]))),
-                rightAwait.receive(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[R]])))
+                leftAwait(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[L]]))),
+                rightAwait(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[R]])))
               ) { case (l, r) => go(l, r)(next) }
           }
 
@@ -68,12 +69,12 @@ object TimeSeriesTransducer {
     }
   }
 
-  def drainRight[L, R]: TimeSeriesTransducer[Either[L, R], L] = process1.collect {
+  def drainRight[L, R]: TimeSeriesTransducer[Pure, Either[L, R], L] = process1.collect {
     case tick @ TimeStamped(ts, None) => tick.asInstanceOf[TimeSeriesValue[L]]
     case TimeStamped(ts, Some(Left(l))) => TimeStamped(ts, Some(l))
   }
 
-  def drainLeft[L, R]: TimeSeriesTransducer[Either[L, R], R] = process1.collect {
+  def drainLeft[L, R]: TimeSeriesTransducer[Pure, Either[L, R], R] = process1.collect {
     case tick @ TimeStamped(ts, None) => tick.asInstanceOf[TimeSeriesValue[R]]
     case TimeStamped(ts, Some(Right(r))) => TimeStamped(ts, Some(r))
   }

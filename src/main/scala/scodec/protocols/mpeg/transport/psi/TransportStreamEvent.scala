@@ -36,10 +36,10 @@ object TransportStreamEvent {
     type SectionsToTables = Process1[In, Out]
 
     val sectionsToTables: SectionsToTables = {
-      def newSectionsToTablesForPid: Stepper.Await[In, Out] = {
+      def newSectionsToTablesForPid: Option[Chunk[In]] => Stepper[In, Out] = {
         val transducer: Process1[In, Out] = PidStamped.preservePidStamps(joinErrors(group) andThen joinErrors(tableBuilder.sectionsToTables))
         // Safe to cast the step here because the various components that make up the transducer won't fail, end, or output until they receive a value
-        process1.stepper(transducer).step.asInstanceOf[Stepper.Await[In, Out]]
+        process1.stepper(transducer).step.asInstanceOf[Stepper.Await[In, Out]].receive
       }
 
       type ThisHandle = Stream.Handle[Pure, In]
@@ -52,12 +52,12 @@ object TransportStreamEvent {
         case Stepper.Await(receive) => Right(acc)
       }
 
-      def go(state: Map[Pid, Stepper.Await[In, Out]]): ThisHandle => ThisPull = h => {
+      def go(state: Map[Pid, Option[Chunk[In]] => Stepper[In, Out]]): ThisHandle => ThisPull = h => {
         Pull.await1Option(h).flatMap {
           case None =>
             val allOut = state.values.foldLeft(Right(Vector.empty): Either[Throwable, Vector[Out]]) { (accEither, await) =>
               accEither.right.flatMap { acc =>
-                gather(await.receive(None), Vector.empty).right.map { out => acc ++ out }
+                gather(await(None), Vector.empty).right.map { out => acc ++ out }
               }
             }
             (allOut match {
@@ -67,7 +67,7 @@ object TransportStreamEvent {
 
           case Some(event #: tl) =>
             val await = state.getOrElse(event.pid, newSectionsToTablesForPid)
-            await.receive(Some(Chunk.singleton(event))).stepToAwait { (out, nextAwait) =>
+            await(Some(Chunk.singleton(event))).stepToAwait { (out, nextAwait) =>
               Pull.output(Chunk.indexedSeq(out)) >> go(state + (event.pid -> nextAwait))(tl)
             }
         }

@@ -70,13 +70,13 @@ object process1ext { outer =>
 
   implicit class StepperOps[A, B](val self: Stepper[A, B]) extends AnyVal {
     def stepToAwait[I, R](
-      cont: (Vector[B], Stepper.Await[A, B]) => Pull[Pure, I, R]
+      cont: (Vector[B], Option[Chunk[A]] => Stepper[A, B]) => Pull[Pure, I, R]
     ): Pull[Pure, I, R] = outer.stepToAwait(self)(cont)
   }
 
 
   def stepToAwait[A, B, I, R](s: Stepper[A, B], acc: Vector[B] = Vector.empty)(
-    cont: (Vector[B], Stepper.Await[A, B]) => Pull[Pure, I, R]
+    cont: (Vector[B], Option[Chunk[A]] => Stepper[A, B]) => Pull[Pure, I, R]
   ): Pull[Pure, I, R] = {
     s.step match {
       case Stepper.Done => Pull.done
@@ -84,7 +84,7 @@ object process1ext { outer =>
       case Stepper.Emits(chunk, next) =>
         stepToAwait(next, acc ++ chunk.toVector)(cont)
       case Stepper.Await(receive) =>
-        cont(acc, Stepper.Await(receive))
+        cont(acc, receive)
     }
   }
 }
