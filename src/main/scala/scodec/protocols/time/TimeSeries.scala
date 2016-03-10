@@ -93,9 +93,9 @@ object TimeSeries {
           Pull.output(chunk.map { tsb => tsb.map(Some.apply) }) >> go(next)(h)
         case Stepper.Await(receive) =>
           h.receive1 {
-            case tick @ TimeStamped(_, None) #: tl =>
-              Pull.output1(tick.asInstanceOf[TimeStamped[Option[B]]]) >> go(stepper)(tl)
-            case value @ TimeStamped(ts, Some(v)) #: tl =>
+            case (tick @ TimeStamped(_, None)) #: tl =>
+              Pull.output1(tick.asInstanceOf[TimeSeriesValue[B]]) >> go(stepper)(tl)
+            case TimeStamped(ts, Some(v)) #: tl =>
               go(receive(Some(Chunk.singleton(TimeStamped(ts, v)))))(tl)
           }
       }
