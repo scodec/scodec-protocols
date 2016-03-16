@@ -70,9 +70,9 @@ object TimeSeries {
           h.receive1 { case hd #: tl =>
             hd match {
               case None =>
-                Pull.output1(None) >> go(stepper)(h)
+                Pull.output1(None) >> go(stepper)(tl)
               case Some(a) =>
-                go(receive(Some(Chunk.singleton(a))))(h)
+                go(receive(Some(Chunk.singleton(a))))(tl)
             }
           }
       }

@@ -123,7 +123,7 @@ object TimeStamped {
       Pull.await1Option[Pure, TimeStamped[A]](h).flatMap {
         case Some(tsa #: tl) =>
           if (tsa.time isBefore end) Pull.output1(tsa map Right.apply) >> go(start, combine(acc, f(tsa.value)))(tl)
-          else Pull.output1(TimeStamped(end, Left(acc))) >> go(end, zero)(h)
+          else Pull.output1(TimeStamped(end, Left(acc))) >> go(end, zero)(tl.push1(tsa))
         case None =>
           Pull.output1(TimeStamped(end, Left(acc))) >> Pull.done
       }
