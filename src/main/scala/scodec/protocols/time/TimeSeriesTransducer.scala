@@ -1,17 +1,19 @@
 package scodec.protocols
 package time
 
+import language.higherKinds
+
 import fs2._
-import fs2.process1.Stepper
+import fs2.pipe.Stepper
 import java.time.Instant
 
-import process1ext._
+import pipes._
 
 /** Companion for [[TimeSeriesTransducer]]. */
 object TimeSeriesTransducer {
 
-  def lift[A, B](f: A => B): TimeSeriesTransducer[Pure, A, B] =
-    process1.lift { _ map { _ map f } }
+  def lift[F[_], A, B](f: A => B): TimeSeriesTransducer[F, A, B] =
+    pipe.lift { _ map { _ map f } }
 
   def either[L, R, O](left: TimeSeriesTransducer[Pure, L, O], right: TimeSeriesTransducer[Pure, R, O]): TimeSeriesTransducer[Pure, Either[L, R], O] = {
 
@@ -65,16 +67,16 @@ object TimeSeriesTransducer {
     }
 
     _ pull { h =>
-      gatherBoth(process1.stepper(left), process1.stepper(right)) { case (l, r) => go(l, r)(h) }
+      gatherBoth(pipe.stepper(left), pipe.stepper(right)) { case (l, r) => go(l, r)(h) }
     }
   }
 
-  def drainRight[L, R]: TimeSeriesTransducer[Pure, Either[L, R], L] = process1.collect {
+  def drainRight[F[_], L, R]: TimeSeriesTransducer[F, Either[L, R], L] = pipe.collect {
     case tick @ TimeStamped(ts, None) => tick.asInstanceOf[TimeSeriesValue[L]]
     case TimeStamped(ts, Some(Left(l))) => TimeStamped(ts, Some(l))
   }
 
-  def drainLeft[L, R]: TimeSeriesTransducer[Pure, Either[L, R], R] = process1.collect {
+  def drainLeft[F[_], L, R]: TimeSeriesTransducer[F, Either[L, R], R] = pipe.collect {
     case tick @ TimeStamped(ts, None) => tick.asInstanceOf[TimeSeriesValue[R]]
     case TimeStamped(ts, Some(Right(r))) => TimeStamped(ts, Some(r))
   }

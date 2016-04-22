@@ -1,6 +1,8 @@
 package scodec.protocols.mpeg
 package transport
 
+import language.higherKinds
+
 import scodec.Codec
 import scodec.bits.BitVector
 import scodec.codecs._
@@ -103,8 +105,8 @@ object Packet {
       ("payload"          | conditional(hdr.payloadIncluded, bits)                    )
     }).as[Packet]
 
-  def validateContinuity: Process1[Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] = {
-    def go(state: Map[Pid, ContinuityCounter]): Stream.Handle[Pure, Packet] => Pull[Pure, Either[PidStamped[DemultiplexerError.Discontinuity], Packet], Stream.Handle[Pure, Packet]] = h => {
+  def validateContinuity[F[_]]: Pipe[F, Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] = {
+    def go(state: Map[Pid, ContinuityCounter]): Stream.Handle[F, Packet] => Pull[F, Either[PidStamped[DemultiplexerError.Discontinuity], Packet], Stream.Handle[F, Packet]] = h => {
       h.receive1 {
         case packet #: tl =>
           val pid = packet.header.pid

@@ -17,8 +17,8 @@ class TimeSeriesTransducerTest extends ProtocolsSpec {
           TimeStamped(Instant.ofEpochMilli(0), Right(1)),
           TimeStamped(Instant.ofEpochMilli(500), Left(2)),
           TimeStamped(Instant.ofEpochMilli(1500), Right(3))
-        ).pipe(TimeSeries.interpolateTicks())
-      source.pipe(x).toList shouldBe List(
+        ).through(TimeSeries.interpolateTicks())
+      source.through(x).toList shouldBe List(
         TimeSeriesValue(Instant.ofEpochMilli(0), 3),
         TimeSeriesValue(Instant.ofEpochMilli(500), 3),
         TimeSeriesValue.tick(Instant.ofEpochMilli(1000)),

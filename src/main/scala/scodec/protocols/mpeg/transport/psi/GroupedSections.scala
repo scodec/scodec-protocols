@@ -3,12 +3,14 @@ package mpeg
 package transport
 package psi
 
+import language.higherKinds
+
 import scala.reflect.ClassTag
 
 import fs2._
-import fs2.process1.Stepper
+import fs2.pipe.Stepper
 
-import process1ext._
+import pipes._
 
 /**
  * Group of sections that make up a logical message.
@@ -41,11 +43,11 @@ object GroupedSections {
   def apply[A <: Section](head: A, tail: List[A] = Nil): GroupedSections[A] =
     DefaultGroupedSections[A](head, tail)
 
-  def groupExtendedSections[A <: ExtendedSection]: Process1[A, Either[GroupingError, GroupedSections[A]]] = {
+  def groupExtendedSections[F[_], A <: ExtendedSection]: Pipe[F, A, Either[GroupingError, GroupedSections[A]]] = {
     type Key = (Int, Int)
     def toKey(section: A): Key = (section.tableId, section.extension.tableIdExtension)
 
-    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]]): Stream.Handle[Pure, A] => Pull[Pure, Either[GroupingError, GroupedSections[A]], Stream.Handle[Pure, A]] = h => {
+    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]]): Stream.Handle[F, A] => Pull[F, Either[GroupingError, GroupedSections[A]], Stream.Handle[F, A]] = h => {
       h.receive1 {
         case section #: tl =>
           val key = toKey(section)
@@ -68,11 +70,10 @@ object GroupedSections {
     }
 
     _ pull go(Map.empty)
-
   }
 
-  def noGrouping: Process1[Section, Either[GroupingError, GroupedSections[Section]]] =
-    process1.lift(s => Right(GroupedSections(s)))
+  def noGrouping[F[_]]: Pipe[F, Section, Either[GroupingError, GroupedSections[Section]]] =
+    pipe.lift(s => Right(GroupedSections(s)))
 
   /**
    * Groups sections in to groups.
@@ -80,7 +81,7 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled.
    * Non-extended sections are emitted as singleton groups.
    */
-  def group: Process1[Section, Either[GroupingError, GroupedSections[Section]]] = {
+  def group[F[_]]: Pipe[F, Section, Either[GroupingError, GroupedSections[Section]]] = {
     groupGeneral(noGrouping)
   }
 
@@ -90,7 +91,7 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled.
    * The specified `nonExtended` process is used to handle non-extended sections.
    */
-  def groupGeneral(nonExtended: Process1[Section, Either[GroupingError, GroupedSections[Section]]]): Process1[Section, Either[GroupingError, GroupedSections[Section]]] = {
+  def groupGeneral(nonExtended: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]]): Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = {
     groupGeneralConditionally(nonExtended, _ => true)
   }
 
@@ -102,7 +103,7 @@ object GroupedSections {
    *
    * The specified `nonExtended` transducer is used to handle non-extended sections.
    */
-  def groupGeneralConditionally(nonExtended: Process1[Section, Either[GroupingError, GroupedSections[Section]]], groupExtended: ExtendedSection => Boolean = _ => true): Process1[Section, Either[GroupingError, GroupedSections[Section]]] = {
+  def groupGeneralConditionally(nonExtended: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]], groupExtended: ExtendedSection => Boolean = _ => true): Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = {
 
     type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Stream.Handle[Pure, Section]]
 
@@ -126,8 +127,8 @@ object GroupedSections {
     }
 
     _ pull { h =>
-      process1.stepper(groupExtendedSections[ExtendedSection]).stepToAwait { (out1, ext) =>
-        process1.stepper(nonExtended).stepToAwait { (out2, nonExt) =>
+      pipe.stepper(groupExtendedSections[Pure, ExtendedSection]).stepToAwait { (out1, ext) =>
+        pipe.stepper(nonExtended).stepToAwait { (out2, nonExt) =>
           Pull.output(Chunk.indexedSeq(out1 ++ out2)) >> go(ext, nonExt)(h)
         }
       }
