@@ -3,6 +3,8 @@ package mpeg
 package transport
 package psi
 
+import language.higherKinds
+
 import fs2._
 import shapeless.Typeable
 
@@ -15,8 +17,8 @@ class TableBuilder private (cases: Map[Int, List[TableSupport[_]]]) {
     new TableBuilder(cases + (ts.tableId -> newCases))
   }
 
-  def sectionsToTables: Process1[GroupedSections[Section], Either[TableBuildingError, Table]] = {
-    def go: Stream.Handle[Pure, GroupedSections[Section]] => Pull[Pure, Either[TableBuildingError, Table], Stream.Handle[Pure, GroupedSections[Section]]] = h => {
+  def sectionsToTables[F[_]]: Pipe[F, GroupedSections[Section], Either[TableBuildingError, Table]] = {
+    def go: Stream.Handle[F, GroupedSections[Section]] => Pull[F, Either[TableBuildingError, Table], Stream.Handle[F, GroupedSections[Section]]] = h => {
       h.receive1 {
         case gs #: tl =>
           cases.get(gs.tableId) match {

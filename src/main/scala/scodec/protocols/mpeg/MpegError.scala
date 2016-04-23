@@ -5,7 +5,7 @@ import fs2._
 import scodec.Err
 import scodec.bits.BitVector
 
-import process1ext._
+import pipes._
 
 trait MpegError {
   def message: String
@@ -21,12 +21,12 @@ object MpegError {
     override def toString = message
   }
 
-  def joinErrors[A, B](p: Process1[A, Either[MpegError, B]]): Process1[Either[MpegError, A], Either[MpegError, B]] =
+  def joinErrors[A, B](p: Pipe[Pure, A, Either[MpegError, B]]): Pipe[Pure, Either[MpegError, A], Either[MpegError, B]] =
     p.conditionallyFeed {
       case Right(a) => Left(a)
       case e @ Left(_) => Right(e.asInstanceOf[Either[MpegError, B]])
     }
 
-  def passErrors[A, B](p: Process1[A, B]): Process1[Either[MpegError, A], Either[MpegError, B]] =
+  def passErrors[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, Either[MpegError, A], Either[MpegError, B]] =
     p.liftR
 }

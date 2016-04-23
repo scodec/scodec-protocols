@@ -1,6 +1,8 @@
 package scodec.protocols.mpeg
 package transport
 
+import scala.language.higherKinds
+
 import fs2._
 
 import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err, SizeBound }
@@ -71,17 +73,17 @@ object Demultiplexer {
    * Upon noticing a PID discontinuity, an error is emitted and PID decoding state is discarded, resulting in any in-progress
    * section decoding to be lost for that PID.
    */
-  def demultiplex(sectionCodec: SectionCodec): Process1[Packet, PidStamped[Either[DemultiplexerError, Result]]] =
+  def demultiplex[F[_]](sectionCodec: SectionCodec): Pipe[F, Packet, PidStamped[Either[DemultiplexerError, Result]]] =
     demultiplexSectionsAndPesPackets(sectionCodec.decoder, pph => Decoder(b => Attempt.successful(DecodeResult(PesPacket.WithoutHeader(pph.streamId, b), BitVector.empty))))
 
   /** Variant of `demultiplex` that parses PES packet headers. */
-  def demultiplexWithPesHeaders(sectionCodec: SectionCodec): Process1[Packet, PidStamped[Either[DemultiplexerError, Result]]] =
+  def demultiplexWithPesHeaders[F[_]](sectionCodec: SectionCodec): Pipe[F, Packet, PidStamped[Either[DemultiplexerError, Result]]] =
     demultiplexSectionsAndPesPackets(sectionCodec.decoder, PesPacket.decoder)
 
   /** Variant of `demultiplex` that allows section and PES decoding to be explicitly specified. */
-  def demultiplexSectionsAndPesPackets(
+  def demultiplexSectionsAndPesPackets[F[_]](
     decodeSectionBody: SectionHeader => Decoder[Section],
-    decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Process1[Packet, PidStamped[Either[DemultiplexerError, Result]]] = {
+    decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Pipe[F, Packet, PidStamped[Either[DemultiplexerError, Result]]] = {
 
     val stuffingByte = bin"11111111"
 
@@ -125,9 +127,9 @@ object Demultiplexer {
    *
    * See the documentation on `DecodeBody` for more information.
    */
-  def demultiplexGeneral[Out](
+  def demultiplexGeneral[F[_], Out](
     decodeHeader: (BitVector, Boolean) => Attempt[DecodeResult[DecodeBody[Out]]]
-  ): Process1[Packet, PidStamped[Either[DemultiplexerError, Out]]] = {
+  ): Pipe[F, Packet, PidStamped[Either[DemultiplexerError, Out]]] = {
 
     def processBody[A](awaitingBody: DecodeState.AwaitingBody[A], payloadUnitStartAfterData: Boolean): StepResult[Out] = {
       val haveFullBody = awaitingBody.neededBits match {
@@ -222,6 +224,6 @@ object Demultiplexer {
       }
     }
 
-    Packet.validateContinuity andThen { _ pull go(Map.empty) }
+    Packet.validateContinuity[Pure] andThen { _ pull go(Map.empty) }
   }
 }

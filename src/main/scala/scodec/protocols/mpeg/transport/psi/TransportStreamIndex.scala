@@ -3,6 +3,8 @@ package mpeg
 package transport
 package psi
 
+import language.higherKinds
+
 import fs2._
 
 sealed abstract class TransportStreamIndex {
@@ -64,8 +66,8 @@ object TransportStreamIndex {
 
   def empty: TransportStreamIndex = DefaultTransportStreamIndex(None, None, Map.empty)
 
-  def build: Process1[Table, Either[TransportStreamIndex, Table]] = {
-    def go(tsi: TransportStreamIndex): Stream.Handle[Pure, Table] => Pull[Pure, Either[TransportStreamIndex, Table], Stream.Handle[Pure, Table]] = h => {
+  def build[F[_]]: Pipe[F, Table, Either[TransportStreamIndex, Table]] = {
+    def go(tsi: TransportStreamIndex): Stream.Handle[F, Table] => Pull[F, Either[TransportStreamIndex, Table], Stream.Handle[F, Table]] = h => {
       h.receive1 {
         case section #: tl =>
           val updatedTsi = section match {

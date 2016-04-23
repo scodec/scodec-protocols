@@ -6,7 +6,7 @@ import language.higherKinds
 import scala.concurrent.duration._
 
 import fs2._
-import fs2.process1.Stepper
+import fs2.pipe.Stepper
 import fs2.util.Task
 
 import java.time.Instant
@@ -38,10 +38,10 @@ object TimeStamped {
   }
 
   /**
-   * Combinator that converts a `Process1[A, B]` in to a `Process1[TimeStamped[A], TimeStamped[B]]` such that
+   * Combinator that converts a `Pipe[Pure, A, B]` in to a `Pipe[Pure, TimeStamped[A], TimeStamped[B]]` such that
    * timestamps are preserved on elements that flow through the stream.
    */
-  def preserveTimeStamps[A, B](p: Process1[A, B]): Process1[TimeStamped[A], TimeStamped[B]] = {
+  def preserveTimeStamps[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, TimeStamped[A], TimeStamped[B]] = {
     def go(time: Option[Instant], stepper: Stepper[A, B]): Stream.Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeStamped[B], Stream.Handle[Pure, TimeStamped[A]]] = { h =>
       stepper.step match {
         case Stepper.Done => Pull.done
@@ -56,7 +56,7 @@ object TimeStamped {
       }
     }
 
-    _ pull go(None, process1.stepper(p))
+    _ pull go(None, pipe.stepper(p))
   }
 
   /**
@@ -68,7 +68,7 @@ object TimeStamped {
    *
    * @param f function which extracts a feature of `A`
    */
-  def perSecondRate[A, B](f: A => B)(zero: B, combine: (B, B) => B): Process1[TimeStamped[A], TimeStamped[B]] =
+  def perSecondRate[F[_], A, B](f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[B]] =
     rate(1.second)(f)(zero, combine)
 
   /**
@@ -84,7 +84,7 @@ object TimeStamped {
    * @param zero identity for `combine`
    * @param combine closed function on `B` which forms a monoid with `zero`
    */
-  def withPerSecondRate[A, B](f: A => B)(zero: B, combine: (B, B) => B): Process1[TimeStamped[A], TimeStamped[Either[B, A]]] =
+  def withPerSecondRate[F[_], A, B](f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[Either[B, A]]] =
     withRate(1.second)(f)(zero, combine)
 
   /**
@@ -99,8 +99,8 @@ object TimeStamped {
    * @param zero identity for `combine`
    * @param combine closed function on `B` which forms a monoid with `zero`
    */
-  def rate[A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Process1[TimeStamped[A], TimeStamped[B]] =
-    in => withRate(over)(f)(zero, combine)(in) pipe process1.collect { case TimeStamped(ts, Left(b)) => TimeStamped(ts, b) }
+  def rate[F[_], A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[B]] =
+    in => withRate(over)(f)(zero, combine)(in) through pipe.collect { case TimeStamped(ts, Left(b)) => TimeStamped(ts, b) }
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
@@ -116,11 +116,11 @@ object TimeStamped {
    * @param zero identity for `combine`
    * @param combine closed function on `B` which forms a monoid with `zero`
    */
-  def withRate[A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Process1[TimeStamped[A], TimeStamped[Either[B, A]]] = {
+  def withRate[F[_], A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[Either[B, A]]] = {
     val overMillis = over.toMillis
-    def go(start: Instant, acc: B): Stream.Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeStamped[Either[B, A]], Stream.Handle[Pure, TimeStamped[A]]] = h => {
+    def go(start: Instant, acc: B): Stream.Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[Either[B, A]], Stream.Handle[F, TimeStamped[A]]] = h => {
       val end = start plusMillis overMillis
-      Pull.await1Option[Pure, TimeStamped[A]](h).flatMap {
+      Pull.await1Option[F, TimeStamped[A]](h).flatMap {
         case Some(tsa #: tl) =>
           if (tsa.time isBefore end) Pull.output1(tsa map Right.apply) >> go(start, combine(acc, f(tsa.value)))(tl)
           else Pull.output1(TimeStamped(end, Left(acc))) >> go(end, zero)(tl.push1(tsa))
@@ -138,15 +138,15 @@ object TimeStamped {
   /**
    * Returns a stream that is the throttled version of the source stream.
    *
-   * Given two adjacent items from the source process, `a` and `b`, where `a` is emitted
+   * Given two adjacent items from the source stream, `a` and `b`, where `a` is emitted
    * first and `b` is emitted second, their time delta is `b.time - a.time`.
    *
-   * This function creates a process that emits values at wall clock times such that
+   * This function creates a stream that emits values at wall clock times such that
    * the time delta between any two adjacent values is proportional to their time delta
-   * in the source process.
+   * in the source stream.
    *
    * The `throttlingFactor` is a scaling factor that determines how much source time a unit
-   * of wall clock time is worth. A value of 1.0 causes the output process to emit
+   * of wall clock time is worth. A value of 1.0 causes the output stream to emit
    * values spaced in wall clock time equal to their time deltas. A value of 2.0
    * emits values at twice the speed of wall clock time.
    *
@@ -154,12 +154,11 @@ object TimeStamped {
    * but should be "played back" at real time speeds.
    */
   def throttle[A](source: Stream[Task, TimeStamped[A]], throttlingFactor: Double)(implicit S: Strategy, scheduler: ScheduledExecutorService): Stream[Task, TimeStamped[A]] = {
-    import wye._
 
     val tickDuration = 100.milliseconds
     val ticksPerSecond = 1.second.toMillis / tickDuration.toMillis
 
-    def doThrottle: Wye[Task, TimeStamped[A], Unit, TimeStamped[A]] = {
+    def doThrottle: Pipe2[Task, TimeStamped[A], Unit, TimeStamped[A]] = {
 
       type PullFromSourceOrTicks = (Stream.Handle[Task, TimeStamped[A]], Stream.Handle[Task, Unit]) => Pull[Task, TimeStamped[A], (Stream.Handle[Task, TimeStamped[A]], Stream.Handle[Task, Unit])]
 
@@ -199,7 +198,7 @@ object TimeStamped {
       }
     }
 
-    (source pipe2 time.awakeEvery(tickDuration).map(_ => ()))(doThrottle)
+    (source through2 time.awakeEvery(tickDuration).map(_ => ()))(doThrottle)
   }
 
   /**
@@ -207,8 +206,8 @@ object TimeStamped {
    * the output time stamps are always increasing in time. Other values are
    * dropped.
    */
-  def increasing[A]: Process1[TimeStamped[A], TimeStamped[A]] =
-    increasingW andThen process1.collect { case Right(out) => out }
+  def increasing[F[_], A]: Pipe[F, TimeStamped[A], TimeStamped[A]] =
+    increasingW andThen pipe.collect { case Right(out) => out }
 
   /**
    * Stream transducer that filters the specified timestamped values to ensure
@@ -216,8 +215,8 @@ object TimeStamped {
    * are emitted as output of the writer, while out of order values are written
    * to the writer side of the writer.
    */
-  def increasingW[A]: Process1[TimeStamped[A], Either[TimeStamped[A], TimeStamped[A]]] = {
-    def notBefore(last: Instant): Stream.Handle[Pure, TimeStamped[A]] => Pull[Pure, Either[TimeStamped[A], TimeStamped[A]], Stream.Handle[Pure, TimeStamped[A]]] = h => {
+  def increasingW[F[_], A]: Pipe[F, TimeStamped[A], Either[TimeStamped[A], TimeStamped[A]]] = {
+    def notBefore(last: Instant): Stream.Handle[F, TimeStamped[A]] => Pull[F, Either[TimeStamped[A], TimeStamped[A]], Stream.Handle[F, TimeStamped[A]]] = h => {
       h.receive1 {
         case tsa #: tl =>
           val now = tsa.time
@@ -237,21 +236,21 @@ object TimeStamped {
    * Stream transducer that reorders a stream of timestamped values that are mostly ordered,
    * using a time based buffer of the specified duration. See [[attemptReorderLocally]] for details.
    *
-   * The resulting process is guaranteed to always emit values in time increasing order.
-   * Values may be dropped from the source process if they were not successfully reordered.
+   * The resulting stream is guaranteed to always emit values in time increasing order.
+   * Values may be dropped from the source stream if they were not successfully reordered.
    */
-  def reorderLocally[A](over: FiniteDuration): Process1[TimeStamped[A], TimeStamped[A]] =
-    reorderLocallyW(over) andThen process1.collect { case Right(tsa) => tsa }
+  def reorderLocally[F[_], A](over: FiniteDuration): Pipe[F, TimeStamped[A], TimeStamped[A]] =
+    reorderLocallyW(over) andThen pipe.collect { case Right(tsa) => tsa }
 
   /**
    * Stream transducer that reorders a stream of timestamped values that are mostly ordered,
    * using a time based buffer of the specified duration. See [[attemptReorderLocally]] for details.
    *
-   * The resulting process is guaranteed to always emit output values in time increasing order.
+   * The resulting stream is guaranteed to always emit output values in time increasing order.
    * Any values that could not be reordered due to insufficient buffer space are emitted on the writer (left)
    * side.
    */
-  def reorderLocallyW[A](over: FiniteDuration): Process1[TimeStamped[A], Either[TimeStamped[A], TimeStamped[A]]] =
+  def reorderLocallyW[F[_], A](over: FiniteDuration): Pipe[F, TimeStamped[A], Either[TimeStamped[A], TimeStamped[A]]] =
     attemptReorderLocally(over) andThen increasingW
 
   /**
@@ -273,14 +272,14 @@ object TimeStamped {
    * will be accumulated in to the buffer until the source halts, and then the{
    * values will be emitted in order.
    */
-  def attemptReorderLocally[A](over: FiniteDuration): Process1[TimeStamped[A], TimeStamped[A]] = {
+  def attemptReorderLocally[F[_], A](over: FiniteDuration): Pipe[F, TimeStamped[A], TimeStamped[A]] = {
     import scala.collection.immutable.SortedMap
     val overMillis = over.toMillis
 
     def outputMapValues(m: SortedMap[Long, Vector[TimeStamped[A]]]) =
       Pull.output(Chunk.seq(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }))
 
-    def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]]): Stream.Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeStamped[A], Stream.Handle[Pure, TimeStamped[A]]] = h => {
+    def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]]): Stream.Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[A], Stream.Handle[Pure, TimeStamped[A]]] = h => {
       Pull.await1Option(h).flatMap {
         case Some(tsa #: tl) =>
           val tsaTimeMillis = tsa.time.toEpochMilli
@@ -296,7 +295,7 @@ object TimeStamped {
     _ pull go(SortedMap.empty)
   }
 
-  def liftL[A, B, C](p: Process1[TimeStamped[A], TimeStamped[B]]): Process1[TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]] = {
+  def liftL[A, B, C](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]] = {
     def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]]): Stream.Handle[Pure, TimeStamped[Either[A, C]]] => Pull[Pure, TimeStamped[Either[B, C]], Stream.Handle[Pure, TimeStamped[Either[A, C]]]] = h => {
       stepper.step match {
         case Stepper.Done => Pull.done
@@ -335,12 +334,12 @@ object TimeStamped {
           }
       }
     }
-    _ pull go(process1.stepper(p))
+    _ pull go(pipe.stepper(p))
   }
 
-  def liftR[A, B, C](p: Process1[TimeStamped[A], TimeStamped[B]]): Process1[TimeStamped[Either[C, A]], TimeStamped[Either[C, B]]] = {
-    def swap[X, Y]: Process1[TimeStamped[Either[X, Y]], TimeStamped[Either[Y, X]]] =
-      process1.lift((_: TimeStamped[Either[X, Y]]).map(_.swap))
+  def liftR[A, B, C](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): Pipe[Pure, TimeStamped[Either[C, A]], TimeStamped[Either[C, B]]] = {
+    def swap[X, Y]: Pipe[Pure, TimeStamped[Either[X, Y]], TimeStamped[Either[Y, X]]] =
+      pipe.lift((_: TimeStamped[Either[X, Y]]).map(_.swap))
     swap[C, A].andThen(liftL(p)).andThen(swap[B, C])
   }
 }

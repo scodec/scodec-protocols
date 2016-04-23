@@ -7,7 +7,7 @@ import scodec.Codec
 import scodec.codecs.uint
 
 import fs2._
-import fs2.process1.Stepper
+import fs2.pipe.Stepper
 
 case class Pid(value: Int) {
   require(value >= Pid.MinValue && value <= Pid.MaxValue)
@@ -27,10 +27,10 @@ case class PidStamped[+A](pid: Pid, value: A) {
 object PidStamped {
 
   /**
-   * Combinator that converts a `Process1[A, B]` in to a `Process1[PidStamped[A], PidStamped[B]]` such that
+   * Combinator that converts a `Pipe[Pure, A, B]` in to a `Pipe[Pure, PidStamped[A], PidStamped[B]]` such that
    * pidstamps are preserved on elements that flow through the process.
    */
-  def preservePidStamps[A, B](p: Process1[A, B]): Process1[PidStamped[A], PidStamped[B]] = {
+  def preservePidStamps[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, PidStamped[A], PidStamped[B]] = {
     def go(pid: Option[Pid], stepper: Stepper[A, B]): Stream.Handle[Pure, PidStamped[A]] => Pull[Pure, PidStamped[B], Stream.Handle[Pure, PidStamped[A]]] = { h =>
       stepper.step match {
         case Stepper.Done => Pull.done
@@ -45,6 +45,6 @@ object PidStamped {
       }
     }
 
-    _ pull go(None, process1.stepper(p))
+    _ pull go(None, pipe.stepper(p))
   }
 }
