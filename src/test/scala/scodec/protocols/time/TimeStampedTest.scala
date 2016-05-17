@@ -115,21 +115,17 @@ class TimeStampedTest extends ProtocolsSpec {
     }
 
     "support throttling a time stamped source" in {
-      implicit val scheduler = java.util.concurrent.Executors.newScheduledThreadPool(4)
-      implicit val strategy = Strategy.fromExecutor(scheduler)
-      try {
-        def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), value.toLong)
-        val source = Stream(ts(0), ts(1), ts(2), ts(3), ts(4)).covary[Task]
-        def time[A](f: => A): Long = {
-          val start = System.nanoTime
-          val _ = f
-          System.nanoTime - start
-        }
-        time(TimeStamped.throttle(source, 1.0).run.run.unsafeRun) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
-        time(TimeStamped.throttle(source, 2.0).run.run.unsafeRun) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
-      } finally {
-        scheduler.shutdown
+      implicit val scheduler = Scheduler.fromFixedDaemonPool(2)
+      implicit val strategy = Strategy.fromFixedDaemonPool(2)
+      def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), value.toLong)
+      val source = Stream(ts(0), ts(1), ts(2), ts(3), ts(4)).covary[Task]
+      def time[A](f: => A): Long = {
+        val start = System.nanoTime
+        val _ = f
+        System.nanoTime - start
       }
+      time(TimeStamped.throttle(source, 1.0).run.run.unsafeRun) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
+      time(TimeStamped.throttle(source, 2.0).run.run.unsafeRun) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
     }
 
     "support lifting a Pipe[Pure, TimeStamped[A], TimeStamped[B]] in to a Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]]" in {

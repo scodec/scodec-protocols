@@ -10,7 +10,6 @@ import fs2.pipe.Stepper
 import fs2.util.Task
 
 import java.time.Instant
-import java.util.concurrent.ScheduledExecutorService
 
 /** Wrapper that associates a time with a value. */
 case class TimeStamped[+A](time: Instant, value: A) {
@@ -153,7 +152,7 @@ object TimeStamped {
    * This is particularly useful when timestamped data can be read in bulk (e.g., from a capture file)
    * but should be "played back" at real time speeds.
    */
-  def throttle[A](source: Stream[Task, TimeStamped[A]], throttlingFactor: Double)(implicit S: Strategy, scheduler: ScheduledExecutorService): Stream[Task, TimeStamped[A]] = {
+  def throttle[A](source: Stream[Task, TimeStamped[A]], throttlingFactor: Double)(implicit S: Strategy, scheduler: Scheduler): Stream[Task, TimeStamped[A]] = {
 
     val tickDuration = 100.milliseconds
     val ticksPerSecond = 1.second.toMillis / tickDuration.toMillis
@@ -198,7 +197,7 @@ object TimeStamped {
       }
     }
 
-    (source through2 time.awakeEvery(tickDuration).map(_ => ()))(doThrottle)
+    (source through2 time.awakeEvery[Task](tickDuration).map(_ => ()))(doThrottle)
   }
 
   /**

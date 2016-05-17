@@ -9,25 +9,23 @@ import fs2._
 import fs2.pipe.Stepper
 import fs2.util.Task
 
-import java.util.concurrent.ScheduledExecutorService
-
 /** Companion for [[TimeSeries]]. */
 object TimeSeries {
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def apply[A](source: Stream[Task, TimeStamped[A]], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit S: Strategy, scheduler: ScheduledExecutorService): TimeSeries[Task, A] = {
+  def apply[A](source: Stream[Task, TimeStamped[A]], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit S: Strategy, scheduler: Scheduler): TimeSeries[Task, A] = {
     val src: TimeSeries[Task, A] = source.map(tsa => tsa.map(Some(_): Option[A]))
     val ticks: TimeSeries[Task, Nothing] = timeTicks(tickPeriod).map(tsu => tsu.map(_ => None))
     src merge ticks through TimeStamped.reorderLocally(reorderOver)
   }
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def lift[A](source: Stream[Task, A], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit S: Strategy, scheduler: ScheduledExecutorService): TimeSeries[Task, A] =
+  def lift[A](source: Stream[Task, A], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit S: Strategy, scheduler: Scheduler): TimeSeries[Task, A] =
     apply(source map TimeStamped.now, tickPeriod, reorderOver)
 
   /** Stream of time ticks spaced by `tickPeriod`. */
-  private def timeTicks(tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: ScheduledExecutorService): Stream[Task, TimeStamped[Unit]] =
-    time.awakeEvery(tickPeriod) map { _ => TimeStamped.now(()) }
+  private def timeTicks(tickPeriod: FiniteDuration = 1.second)(implicit S: Strategy, scheduler: Scheduler): Stream[Task, TimeStamped[Unit]] =
+    time.awakeEvery[Task](tickPeriod) map { _ => TimeStamped.now(()) }
 
   /**
    * Stream transducer that converts a stream of timestamped values with monotonically increasing timestamps in
