@@ -124,8 +124,8 @@ class TimeStampedTest extends ProtocolsSpec {
         val _ = f
         System.nanoTime - start
       }
-      time(TimeStamped.throttle(source, 1.0).run.run.unsafeRun) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
-      time(TimeStamped.throttle(source, 2.0).run.run.unsafeRun) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
+      time(TimeStamped.throttle(source, 1.0).run.unsafeRun) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
+      time(TimeStamped.throttle(source, 2.0).run.unsafeRun) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
     }
 
     "support lifting a Pipe[Pure, TimeStamped[A], TimeStamped[B]] in to a Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]]" in {
