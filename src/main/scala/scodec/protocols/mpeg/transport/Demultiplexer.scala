@@ -5,11 +5,10 @@ import scala.language.higherKinds
 
 import fs2._
 
-import scodec.{ Attempt, Codec, DecodeResult, DecodingContext, Err, SizeBound }
+import scodec.{ Attempt, Codec, DecodeResult, Err }
 import scodec.Decoder
 import scodec.bits._
 import scodec.codecs.fixedSizeBits
-import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
 import scodec.protocols.mpeg._
 import scodec.protocols.mpeg.transport.psi.{ Section, SectionHeader, SectionCodec }

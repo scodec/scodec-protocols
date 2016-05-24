@@ -3,17 +3,17 @@ scodecModule := "scodec-protocols"
 scodecPrimaryModule
 scodecPrimaryModuleJvm
 
-crossScalaVersions := crossScalaVersions.value.filter { _ startsWith "2.11." }
+crossScalaVersions := crossScalaVersions.value.filter { v => v.startsWith("2.11.") || v.startsWith("2.12.") }
 
 contributors ++= Seq(Contributor("mpilquist", "Michael Pilquist"))
 
 rootPackage := "scodec.protocols"
 
 libraryDependencies ++= Seq(
-  "org.scodec" %% "scodec-core" % "1.9.0",
-  "org.scodec" %% "scodec-stream" % "1.0.0-M2",
-  "org.scalatest" %% "scalatest" % "2.2.2" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.12.0" % "test"
+  "org.scodec" %% "scodec-core" % "1.10.0",
+  "org.scodec" %% "scodec-stream" % "1.0.0-M2a",
+  "org.scalatest" %% "scalatest" % "3.0.0-M16-SNAP4" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.13.1" % "test"
 )
 
 libraryDependencies ++= {

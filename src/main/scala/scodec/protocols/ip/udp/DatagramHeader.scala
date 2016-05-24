@@ -2,7 +2,6 @@ package scodec.protocols
 package ip
 package udp
 
-import scodec.bits.BitVector
 import scodec.Codec
 import scodec.codecs._
 import scodec.stream._

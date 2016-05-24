@@ -1,6 +1,6 @@
 package scodec.protocols
 
-import scodec.{ Attempt, Codec, DecodeResult }
+import scodec.Codec
 import scodec.bits._
 import scodec.codecs._
 

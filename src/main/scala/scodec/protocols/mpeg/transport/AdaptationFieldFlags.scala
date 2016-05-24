@@ -2,7 +2,6 @@ package scodec.protocols.mpeg
 package transport
 
 import scodec.Codec
-import scodec.bits.BitVector
 import scodec.codecs._
 
 /** Flags in the adaptation field. */

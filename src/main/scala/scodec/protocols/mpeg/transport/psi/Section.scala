@@ -3,7 +3,6 @@ package transport
 package psi
 
 import scodec.Codec
-import scodec.bits.BitVector
 import scodec.codecs._
 
 trait Section {

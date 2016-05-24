@@ -1,14 +1,11 @@
 package scodec.protocols
 package pcap
 
-import scodec.{ Codec, Decoder, Err }
-import scodec.bits.BitVector
+import scodec.{ Codec, Err }
 import scodec.codecs._
 import scodec.stream._
 
-import scodec.{ Codec, Attempt, DecodeResult }
 import scodec.protocols.time._
-import scodec.stream.decode.DecodingError
 
 import shapeless.Lazy
 

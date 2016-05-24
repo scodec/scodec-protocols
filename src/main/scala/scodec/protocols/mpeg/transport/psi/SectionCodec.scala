@@ -5,7 +5,6 @@ package psi
 import scodec.{ Attempt, Codec, Decoder, DecodeResult, DecodingContext, Err, SizeBound }
 import scodec.bits._
 import scodec.codecs._
-import scodec.stream.decode.{ StreamDecoder, many => decodeMany }
 
 class SectionCodec private (cases: Map[Int, List[SectionCodec.Case[Any, Section]]], verifyCrc: Boolean = true) extends Codec[Section] {
   import SectionCodec._
