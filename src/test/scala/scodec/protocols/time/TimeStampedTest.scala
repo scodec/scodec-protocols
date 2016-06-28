@@ -5,7 +5,6 @@ import language.implicitConversions
 
 import java.time.Instant
 import fs2._
-import fs2.util.Task
 import scala.concurrent.duration._
 import scodec.bits._
 

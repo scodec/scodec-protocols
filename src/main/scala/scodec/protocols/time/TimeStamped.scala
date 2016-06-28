@@ -7,7 +7,6 @@ import scala.concurrent.duration._
 
 import fs2._
 import fs2.pipe.Stepper
-import fs2.util.Task
 
 import java.time.Instant
 

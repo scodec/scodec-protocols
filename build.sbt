@@ -10,9 +10,9 @@ contributors ++= Seq(Contributor("mpilquist", "Michael Pilquist"))
 rootPackage := "scodec.protocols"
 
 libraryDependencies ++= Seq(
-  "org.scodec" %% "scodec-core" % "1.10.0",
-  "org.scodec" %% "scodec-stream" % "1.0.0-M3",
-  "org.scalatest" %% "scalatest" % "3.0.0-RC2" % "test",
+  "org.scodec" %% "scodec-core" % "1.10.1",
+  "org.scodec" %% "scodec-stream" % "1.0.0-M4",
+  "org.scalatest" %% "scalatest" % "3.0.0-RC3" % "test",
   "org.scalacheck" %% "scalacheck" % "1.13.1" % "test"
 )
 
