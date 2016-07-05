@@ -10,14 +10,14 @@ contributors ++= Seq(Contributor("mpilquist", "Michael Pilquist"))
 rootPackage := "scodec.protocols"
 
 libraryDependencies ++= Seq(
-  "org.scodec" %% "scodec-core" % "1.10.1",
-  "org.scodec" %% "scodec-stream" % "1.0.0-M4",
-  "org.scalatest" %% "scalatest" % "3.0.0-RC3" % "test",
+  "org.scodec" %% "scodec-core" % "1.10.2",
+  "org.scodec" %% "scodec-stream" % "1.0.0-M5",
+  "org.scalatest" %% "scalatest" % "3.0.0-RC4" % "test",
   "org.scalacheck" %% "scalacheck" % "1.13.1" % "test"
 )
 
 libraryDependencies ++= {
-  if (scalaBinaryVersion.value startsWith "2.10") Seq(compilerPlugin("org.scalamacros" % "paradise" % "2.0.1" cross CrossVersion.full)) else Nil
+  if (scalaBinaryVersion.value startsWith "2.10") Seq(compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)) else Nil
 }
 
 OsgiKeys.exportPackage := Seq("!scodec.bits,!scodec.codecs,!scodec.stream,scodec.protocols.*;version=${Bundle-Version}")
