@@ -40,7 +40,7 @@ object TimeStamped {
    * timestamps are preserved on elements that flow through the stream.
    */
   def preserveTimeStamps[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, TimeStamped[A], TimeStamped[B]] = {
-    def go(time: Option[Instant], stepper: Stepper[A, B]): Stream.Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeStamped[B], Stream.Handle[Pure, TimeStamped[A]]] = { h =>
+    def go(time: Option[Instant], stepper: Stepper[A, B]): Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeStamped[B], Handle[Pure, TimeStamped[A]]] = { h =>
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
@@ -50,7 +50,7 @@ object TimeStamped {
             case None => go(time, next)(h)
           }
         case Stepper.Await(receive) =>
-          h.receive1 { case tsa #: tl => go(Some(tsa.time), receive(Some(Chunk.singleton(tsa.value))))(tl) }
+          h.receive1 { (tsa, tl) => go(Some(tsa.time), receive(Some(Chunk.singleton(tsa.value))))(tl) }
       }
     }
 
@@ -116,10 +116,10 @@ object TimeStamped {
    */
   def withRate[F[_], A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[Either[B, A]]] = {
     val overMillis = over.toMillis
-    def go(start: Instant, acc: B): Stream.Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[Either[B, A]], Stream.Handle[F, TimeStamped[A]]] = h => {
+    def go(start: Instant, acc: B): Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[Either[B, A]], Handle[F, TimeStamped[A]]] = h => {
       val end = start plusMillis overMillis
-      Pull.await1Option[F, TimeStamped[A]](h).flatMap {
-        case Some(tsa #: tl) =>
+      h.await1Option.flatMap {
+        case Some((tsa, tl)) =>
           if (tsa.time isBefore end) Pull.output1(tsa map Right.apply) >> go(start, combine(acc, f(tsa.value)))(tl)
           else Pull.output1(TimeStamped(end, Left(acc))) >> go(end, zero)(tl.push1(tsa))
         case None =>
@@ -127,7 +127,7 @@ object TimeStamped {
       }
     }
     _ pull { h =>
-      h.receive1 { case tsa #: tl =>
+      h.receive1 { (tsa, tl) =>
         Pull.output1(tsa.map(Right.apply)) >> go(tsa.time, f(tsa.value))(tl)
       }
     }
@@ -158,7 +158,7 @@ object TimeStamped {
 
     def doThrottle: Pipe2[Task, TimeStamped[A], Unit, TimeStamped[A]] = {
 
-      type PullFromSourceOrTicks = (Stream.Handle[Task, TimeStamped[A]], Stream.Handle[Task, Unit]) => Pull[Task, TimeStamped[A], (Stream.Handle[Task, TimeStamped[A]], Stream.Handle[Task, Unit])]
+      type PullFromSourceOrTicks = (Handle[Task, TimeStamped[A]], Handle[Task, Unit]) => Pull[Task, TimeStamped[A], (Handle[Task, TimeStamped[A]], Handle[Task, Unit])]
 
       def takeUpto(chunk: Chunk[TimeStamped[A]], upto: Instant): (Chunk[TimeStamped[A]], Chunk[TimeStamped[A]]) = {
         val uptoMillis = upto.toEpochMilli
@@ -167,32 +167,30 @@ object TimeStamped {
       }
 
       def read(upto: Instant): PullFromSourceOrTicks = { (src, ticks) =>
-        src.receive {
-          case chunk #: tl =>
-            if (chunk.isEmpty) read(upto)(tl, ticks)
-            else {
-              val (toOutput, pending) = takeUpto(chunk, upto)
-              if (pending.isEmpty) Pull.output(toOutput) >> read(upto)(tl, ticks)
-              else Pull.output(toOutput) >> awaitTick(upto, pending)(tl, ticks)
-            }
+        src.receive { (chunk, tl) =>
+          if (chunk.isEmpty) read(upto)(tl, ticks)
+          else {
+            val (toOutput, pending) = takeUpto(chunk, upto)
+            if (pending.isEmpty) Pull.output(toOutput) >> read(upto)(tl, ticks)
+            else Pull.output(toOutput) >> awaitTick(upto, pending)(tl, ticks)
+          }
         }
       }
 
       def awaitTick(upto: Instant, pending: Chunk[TimeStamped[A]]): PullFromSourceOrTicks = { (src, ticks) =>
-        ticks.receive1 {
-          case tick #: tl =>
-            val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
-            val (toOutput, stillPending) = takeUpto(pending, newUpto)
-            if (stillPending.isEmpty) {
-              Pull.output(toOutput) >> read(newUpto)(src, tl)
-            } else {
-              Pull.output(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
-            }
+        ticks.receive1 { (tick, tl) =>
+          val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
+          val (toOutput, stillPending) = takeUpto(pending, newUpto)
+          if (stillPending.isEmpty) {
+            Pull.output(toOutput) >> read(newUpto)(src, tl)
+          } else {
+            Pull.output(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
+          }
         }
       }
 
       _.pull2(_) {
-        (src, ticks) => src.await1.flatMap { case tsa #: tl => Pull.output1(tsa) >> read(tsa.time)(tl, ticks) }
+        (src, ticks) => src.receive1 { (tsa, tl) => Pull.output1(tsa) >> read(tsa.time)(tl, ticks) }
       }
     }
 
@@ -214,17 +212,16 @@ object TimeStamped {
    * to the writer side of the writer.
    */
   def increasingW[F[_], A]: Pipe[F, TimeStamped[A], Either[TimeStamped[A], TimeStamped[A]]] = {
-    def notBefore(last: Instant): Stream.Handle[F, TimeStamped[A]] => Pull[F, Either[TimeStamped[A], TimeStamped[A]], Stream.Handle[F, TimeStamped[A]]] = h => {
-      h.receive1 {
-        case tsa #: tl =>
-          val now = tsa.time
-          if (last.toEpochMilli <= now.toEpochMilli) Pull.output1(Right(tsa)) >> notBefore(now)(tl)
-          else Pull.output1(Left(tsa)) >> notBefore(last)(tl)
+    def notBefore(last: Instant): Handle[F, TimeStamped[A]] => Pull[F, Either[TimeStamped[A], TimeStamped[A]], Handle[F, TimeStamped[A]]] = h => {
+      h.receive1 { (tsa, tl) =>
+        val now = tsa.time
+        if (last.toEpochMilli <= now.toEpochMilli) Pull.output1(Right(tsa)) >> notBefore(now)(tl)
+        else Pull.output1(Left(tsa)) >> notBefore(last)(tl)
       }
     }
 
     _ pull { h =>
-      h.receive1 { case tsa #: tl =>
+      h.receive1 { (tsa, tl) =>
         Pull.output1(Right(tsa)) >> notBefore(tsa.time)(tl)
       }
     }
@@ -277,9 +274,9 @@ object TimeStamped {
     def outputMapValues(m: SortedMap[Long, Vector[TimeStamped[A]]]) =
       Pull.output(Chunk.seq(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }))
 
-    def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]]): Stream.Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[A], Stream.Handle[Pure, TimeStamped[A]]] = h => {
-      Pull.await1Option(h).flatMap {
-        case Some(tsa #: tl) =>
+    def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]]): Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[A], Handle[Pure, TimeStamped[A]]] = h => {
+      h.await1Option.flatMap {
+        case Some((tsa, tl)) =>
           val tsaTimeMillis = tsa.time.toEpochMilli
           val until = tsaTimeMillis - overMillis
           val (toOutput, toBuffer) = buffered span { case (x, _) => x <= until }
@@ -294,41 +291,40 @@ object TimeStamped {
   }
 
   def liftL[A, B, C](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]] = {
-    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]]): Stream.Handle[Pure, TimeStamped[Either[A, C]]] => Pull[Pure, TimeStamped[Either[B, C]], Stream.Handle[Pure, TimeStamped[Either[A, C]]]] = h => {
+    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]]): Handle[Pure, TimeStamped[Either[A, C]]] => Pull[Pure, TimeStamped[Either[B, C]], Handle[Pure, TimeStamped[Either[A, C]]]] = h => {
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
         case Stepper.Emits(chunk, next) =>
           Pull.output(chunk.map { tsb => tsb.map { b => Left(b): Either[B, C] }}) >> go(next)(h)
         case Stepper.Await(receive) =>
-          h.receive {
-            case chunk #: tl =>
-              chunk.uncons match {
-                case None =>
-                  go(stepper)(tl)
-                case Some((head @ TimeStamped(time, Right(c)), tail)) =>
-                  val numHeadRights = {
-                    val indexOfFirstLeft = tail.indexWhere(_.value.isLeft)
-                    indexOfFirstLeft match {
-                      case None => chunk.size
-                      case Some(idx) => 1 + idx
-                    }
+          h.receive { (chunk, tl) =>
+            chunk.uncons match {
+              case None =>
+                go(stepper)(tl)
+              case Some((head @ TimeStamped(time, Right(c)), tail)) =>
+                val numHeadRights = {
+                  val indexOfFirstLeft = tail.indexWhere(_.value.isLeft)
+                  indexOfFirstLeft match {
+                    case None => chunk.size
+                    case Some(idx) => 1 + idx
                   }
-                  val toOutput = chunk.take(numHeadRights).asInstanceOf[Chunk[TimeStamped[Either[B, C]]]]
-                  val remainder = chunk.drop(numHeadRights)
-                  Pull.output(toOutput) >> go(stepper)(if (remainder.isEmpty) tl else tl.push(remainder))
-                case Some((TimeStamped(time, Left(a)), tail)) =>
-                  val numHeadLefts = {
-                    val indexOfFirstRight = tail.indexWhere(_.value.isRight)
-                    indexOfFirstRight match {
-                      case None => chunk.size
-                      case Some(idx) => 1 + idx
-                    }
+                }
+                val toOutput = chunk.take(numHeadRights).asInstanceOf[Chunk[TimeStamped[Either[B, C]]]]
+                val remainder = chunk.drop(numHeadRights)
+                Pull.output(toOutput) >> go(stepper)(if (remainder.isEmpty) tl else tl.push(remainder))
+              case Some((TimeStamped(time, Left(a)), tail)) =>
+                val numHeadLefts = {
+                  val indexOfFirstRight = tail.indexWhere(_.value.isRight)
+                  indexOfFirstRight match {
+                    case None => chunk.size
+                    case Some(idx) => 1 + idx
                   }
-                  val toFeed = chunk.take(numHeadLefts).map { _ map { case Left(a) => a; case Right(_) => sys.error("Chunk is all lefts!") } }
-                  val remainder = chunk.drop(numHeadLefts)
-                  go(receive(Some(toFeed)))(if (remainder.isEmpty) tl else tl.push(remainder))
-              }
+                }
+                val toFeed = chunk.take(numHeadLefts).map { _ map { case Left(a) => a; case Right(_) => sys.error("Chunk is all lefts!") } }
+                val remainder = chunk.drop(numHeadLefts)
+                go(receive(Some(toFeed)))(if (remainder.isEmpty) tl else tl.push(remainder))
+            }
           }
       }
     }

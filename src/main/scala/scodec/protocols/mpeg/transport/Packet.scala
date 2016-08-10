@@ -106,20 +106,18 @@ object Packet {
     }).as[Packet]
 
   def validateContinuity[F[_]]: Pipe[F, Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] = {
-    def go(state: Map[Pid, ContinuityCounter]): Stream.Handle[F, Packet] => Pull[F, Either[PidStamped[DemultiplexerError.Discontinuity], Packet], Stream.Handle[F, Packet]] = h => {
-      h.receive1 {
-        case packet #: tl =>
-          val pid = packet.header.pid
-          val currentContinuityCounter = packet.header.continuityCounter
-          state.get(pid).map { lastContinuityCounter =>
-            if (lastContinuityCounter.next == currentContinuityCounter) {
-              Pull.pure(())
-            } else {
-              val err: Either[PidStamped[DemultiplexerError.Discontinuity], Packet] = Left(PidStamped(pid, DemultiplexerError.Discontinuity(lastContinuityCounter, currentContinuityCounter)))
-              Pull.output1(err)
-            }
-          }.getOrElse(Pull.pure(())) >> Pull.output1(Right(packet)) >> go(state + (pid -> currentContinuityCounter))(tl)
-
+    def go(state: Map[Pid, ContinuityCounter]): Handle[F, Packet] => Pull[F, Either[PidStamped[DemultiplexerError.Discontinuity], Packet], Handle[F, Packet]] = h => {
+      h.receive1 { (packet, tl) =>
+        val pid = packet.header.pid
+        val currentContinuityCounter = packet.header.continuityCounter
+        state.get(pid).map { lastContinuityCounter =>
+          if (lastContinuityCounter.next == currentContinuityCounter) {
+            Pull.pure(())
+          } else {
+            val err: Either[PidStamped[DemultiplexerError.Discontinuity], Packet] = Left(PidStamped(pid, DemultiplexerError.Discontinuity(lastContinuityCounter, currentContinuityCounter)))
+            Pull.output1(err)
+          }
+        }.getOrElse(Pull.pure(())) >> Pull.output1(Right(packet)) >> go(state + (pid -> currentContinuityCounter))(tl)
       }
     }
     _ pull go(Map.empty)

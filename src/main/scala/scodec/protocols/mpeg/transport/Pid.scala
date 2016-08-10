@@ -31,7 +31,7 @@ object PidStamped {
    * pidstamps are preserved on elements that flow through the process.
    */
   def preservePidStamps[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, PidStamped[A], PidStamped[B]] = {
-    def go(pid: Option[Pid], stepper: Stepper[A, B]): Stream.Handle[Pure, PidStamped[A]] => Pull[Pure, PidStamped[B], Stream.Handle[Pure, PidStamped[A]]] = { h =>
+    def go(pid: Option[Pid], stepper: Stepper[A, B]): Handle[Pure, PidStamped[A]] => Pull[Pure, PidStamped[B], Handle[Pure, PidStamped[A]]] = { h =>
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
@@ -41,7 +41,7 @@ object PidStamped {
             case None => go(pid, next)(h)
           }
         case Stepper.Await(receive) =>
-          h.receive1 { case psa #: tl => go(Some(psa.pid), receive(Some(Chunk.singleton(psa.value))))(tl) }
+          h.receive1 { (psa, tl) => go(Some(psa.pid), receive(Some(Chunk.singleton(psa.value))))(tl) }
       }
     }
 

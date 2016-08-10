@@ -17,7 +17,7 @@ object TimeSeriesTransducer {
 
   def either[L, R, O](left: TimeSeriesTransducer[Pure, L, O], right: TimeSeriesTransducer[Pure, R, O]): TimeSeriesTransducer[Pure, Either[L, R], O] = {
 
-    type ThisPull = Pull[Pure, TimeSeriesValue[O], Stream.Handle[Pure, TimeSeriesValue[Either[L, R]]]]
+    type ThisPull = Pull[Pure, TimeSeriesValue[O], Handle[Pure, TimeSeriesValue[Either[L, R]]]]
 
     def gatherBoth(
       left: Stepper[TimeSeriesValue[L], TimeSeriesValue[O]],
@@ -44,25 +44,23 @@ object TimeSeriesTransducer {
     def go(
       leftAwait: Option[Chunk[TimeSeriesValue[L]]] =>Stepper[TimeSeriesValue[L], TimeSeriesValue[O]],
       rightAwait: Option[Chunk[TimeSeriesValue[R]]] => Stepper[TimeSeriesValue[R], TimeSeriesValue[O]]
-    ): Stream.Handle[Pure, TimeSeriesValue[Either[L, R]]] => ThisPull = h => {
-      h.receive1 {
-        case value #: next =>
-          value match {
-            case TimeStamped(ts, Some(Left(l))) =>
-              leftAwait(Some(Chunk.singleton(TimeStamped(ts, Some(l))))).stepToAwait { (out, newLeftAwait) =>
-                Pull.output(Chunk.indexedSeq(out)) >> go(newLeftAwait, rightAwait)(next)
-              }
-            case TimeStamped(ts, Some(Right(r))) =>
-              rightAwait(Some(Chunk.singleton(TimeStamped(ts, Some(r))))).stepToAwait { (out, newRightAwait) =>
-                Pull.output(Chunk.indexedSeq(out)) >> go(leftAwait, newRightAwait)(next)
-              }
-            case TimeStamped(ts, None) =>
-              gatherBoth(
-                leftAwait(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[L]]))),
-                rightAwait(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[R]])))
-              ) { case (l, r) => go(l, r)(next) }
-          }
-
+    ): Handle[Pure, TimeSeriesValue[Either[L, R]]] => ThisPull = h => {
+      h.receive1 { (value, next) =>
+        value match {
+          case TimeStamped(ts, Some(Left(l))) =>
+            leftAwait(Some(Chunk.singleton(TimeStamped(ts, Some(l))))).stepToAwait { (out, newLeftAwait) =>
+              Pull.output(Chunk.indexedSeq(out)) >> go(newLeftAwait, rightAwait)(next)
+            }
+          case TimeStamped(ts, Some(Right(r))) =>
+            rightAwait(Some(Chunk.singleton(TimeStamped(ts, Some(r))))).stepToAwait { (out, newRightAwait) =>
+              Pull.output(Chunk.indexedSeq(out)) >> go(leftAwait, newRightAwait)(next)
+            }
+          case TimeStamped(ts, None) =>
+            gatherBoth(
+              leftAwait(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[L]]))),
+              rightAwait(Some(Chunk.singleton(value.asInstanceOf[TimeSeriesValue[R]])))
+            ) { case (l, r) => go(l, r)(next) }
+        }
       }
     }
 

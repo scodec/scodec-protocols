@@ -11,8 +11,8 @@ rootPackage := "scodec.protocols"
 
 libraryDependencies ++= Seq(
   "org.scodec" %% "scodec-core" % "1.10.2",
-  "org.scodec" %% "scodec-stream" % "1.0.0-M6",
-  "org.scalatest" %% "scalatest" % "3.0.0-RC4" % "test",
+  "org.scodec" %% "scodec-stream" % "1.0.0-SNAPSHOT",
+  "org.scalatest" %% "scalatest" % "3.0.0" % "test",
   "org.scalacheck" %% "scalacheck" % "1.13.1" % "test"
 )
 

@@ -42,7 +42,7 @@ object TransportStreamEvent {
         pipe.stepper(transducer).step.asInstanceOf[Stepper.Await[In, Out]].receive
       }
 
-      type ThisHandle = Stream.Handle[Pure, In]
+      type ThisHandle = Handle[Pure, In]
       type ThisPull = Pull[Pure, Out, ThisHandle]
 
       def gather(s: Stepper[In, Out], acc: Vector[Out]): Either[Throwable, Vector[Out]] = s.step match {
@@ -53,7 +53,7 @@ object TransportStreamEvent {
       }
 
       def go(state: Map[Pid, Option[Chunk[In]] => Stepper[In, Out]]): ThisHandle => ThisPull = h => {
-        Pull.await1Option(h).flatMap {
+        h.await1Option.flatMap {
           case None =>
             val allOut = state.values.foldLeft(Right(Vector.empty): Either[Throwable, Vector[Out]]) { (accEither, await) =>
               accEither.right.flatMap { acc =>
@@ -65,7 +65,7 @@ object TransportStreamEvent {
               case Right(out) => Pull.output(Chunk.indexedSeq(out))
             }) >> Pull.done
 
-          case Some(event #: tl) =>
+          case Some((event, tl)) =>
             val await = state.getOrElse(event.pid, newSectionsToTablesForPid)
             await(Some(Chunk.singleton(event))).stepToAwait { (out, nextAwait) =>
               Pull.output(Chunk.indexedSeq(out)) >> go(state + (event.pid -> nextAwait))(tl)

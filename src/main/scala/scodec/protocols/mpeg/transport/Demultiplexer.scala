@@ -207,14 +207,14 @@ object Demultiplexer {
       }
     }
 
-    type ThisHandle = Stream.Handle[Pure, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]]
+    type ThisHandle = Handle[Pure, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]]
     type ThisPull = Pull[Pure, PidStamped[Either[DemultiplexerError, Out]], ThisHandle]
 
     def go(state: Map[Pid, DecodeState]): ThisHandle => ThisPull = h => {
       h.receive1 {
-        case Left(discontinuity) #: tl =>
+        case (Left(discontinuity), tl) =>
           Pull.output1(PidStamped(discontinuity.pid, Left(discontinuity.value))) >> go(state - discontinuity.pid)(tl)
-        case Right(packet) #: tl =>
+        case (Right(packet), tl) =>
           val pid = packet.header.pid
           val oldStateForPid = state.get(pid)
           val result = handlePacket(oldStateForPid, packet)

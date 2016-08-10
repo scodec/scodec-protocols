@@ -33,9 +33,9 @@ object TimeSeries {
    */
   def interpolateTicks[A](tickPeriod: FiniteDuration = 1.second): Pipe[Pure, TimeStamped[A], TimeSeriesValue[A]] = {
     val tickPeriodMillis = tickPeriod.toMillis
-    def go(nextTick: Instant): Stream.Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeSeriesValue[A], Stream.Handle[Pure, TimeStamped[A]]] = h => {
+    def go(nextTick: Instant): Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeSeriesValue[A], Handle[Pure, TimeStamped[A]]] = h => {
       def tickTime(x: Int) = nextTick plusMillis (x * tickPeriodMillis)
-      h.receive1 { case tsa #: tl =>
+      h.receive1 { (tsa, tl) =>
         if (tsa.time.toEpochMilli < nextTick.toEpochMilli) Pull.output1(tsa.toTimeSeriesValue) >> go(nextTick)(tl)
         else {
           val tickCount = ((tsa.time.toEpochMilli - nextTick.toEpochMilli) / tickPeriodMillis + 1).toInt
@@ -46,7 +46,7 @@ object TimeSeries {
       }
     }
     in => in pull { h =>
-      h.receive1 { case tsa #: tl =>
+      h.receive1 { (tsa, tl) =>
         Pull.output1(tsa.toTimeSeriesValue) >> go(tsa.time plusMillis tickPeriodMillis)(tl)
       }
     }
@@ -57,14 +57,14 @@ object TimeSeries {
    * timestamps are preserved on elements that flow through the stream.
    */
   def preserve[A, B](p: Pipe[Pure, A, B]): TimeSeriesTransducer[Pure, A, B] = {
-    def go(stepper: Stepper[A, B]): Stream.Handle[Pure, Option[A]] => Pull[Pure, Option[B], Stream.Handle[Pure, Option[A]]] = h => {
+    def go(stepper: Stepper[A, B]): Handle[Pure, Option[A]] => Pull[Pure, Option[B], Handle[Pure, Option[A]]] = h => {
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
         case Stepper.Emits(chunk, next) =>
           Pull.output(chunk.map(Some(_))) >> go(next)(h)
         case Stepper.Await(receive) =>
-          h.receive1 { case hd #: tl =>
+          h.receive1 { (hd, tl) =>
             hd match {
               case None =>
                 Pull.output1(None) >> go(stepper)(tl)
@@ -82,7 +82,7 @@ object TimeSeries {
    * timestamps are preserved on elements that flow through the stream.
    */
   def preserveTicks[A, B](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): TimeSeriesTransducer[Pure, A, B] = {
-    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]]): Stream.Handle[Pure, TimeSeriesValue[A]] => Pull[Pure, TimeSeriesValue[B], Stream.Handle[Pure, TimeSeriesValue[A]]] = h => {
+    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]]): Handle[Pure, TimeSeriesValue[A]] => Pull[Pure, TimeSeriesValue[B], Handle[Pure, TimeSeriesValue[A]]] = h => {
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
@@ -90,9 +90,9 @@ object TimeSeries {
           Pull.output(chunk.map { tsb => tsb.map(Some.apply) }) >> go(next)(h)
         case Stepper.Await(receive) =>
           h.receive1 {
-            case (tick @ TimeStamped(_, None)) #: tl =>
+            case ((tick @ TimeStamped(_, None)), tl) =>
               Pull.output1(tick.asInstanceOf[TimeSeriesValue[B]]) >> go(stepper)(tl)
-            case TimeStamped(ts, Some(v)) #: tl =>
+            case (TimeStamped(ts, Some(v)), tl) =>
               go(receive(Some(Chunk.singleton(TimeStamped(ts, v)))))(tl)
           }
       }

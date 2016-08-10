@@ -47,25 +47,24 @@ object GroupedSections {
     type Key = (Int, Int)
     def toKey(section: A): Key = (section.tableId, section.extension.tableIdExtension)
 
-    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]]): Stream.Handle[F, A] => Pull[F, Either[GroupingError, GroupedSections[A]], Stream.Handle[F, A]] = h => {
-      h.receive1 {
-        case section #: tl =>
-          val key = toKey(section)
-          val (err, acc) = accumulatorByIds.get(key) match {
-            case None => (None, SectionAccumulator(section))
-            case Some(acc) =>
-              acc.add(section) match {
-                case Right(acc) => (None, acc)
-                case Left(err) =>
-                  (Some(err), SectionAccumulator(section))
-              }
-          }
-          val maybeOutputErr = err.map { e => Pull.output1(Left(GroupingError(section.tableId, section.extension.tableIdExtension, e))) }.getOrElse(Pull.pure(()))
-          maybeOutputErr >> (acc.complete match {
-            case None => go(accumulatorByIds + (key -> acc))(tl)
-            case Some(sections) =>
-              Pull.output1(Right(sections)) >> go(accumulatorByIds - key)(tl)
-          })
+    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]]): Handle[F, A] => Pull[F, Either[GroupingError, GroupedSections[A]], Handle[F, A]] = h => {
+      h.receive1 { (section, tl) =>
+        val key = toKey(section)
+        val (err, acc) = accumulatorByIds.get(key) match {
+          case None => (None, SectionAccumulator(section))
+          case Some(acc) =>
+            acc.add(section) match {
+              case Right(acc) => (None, acc)
+              case Left(err) =>
+                (Some(err), SectionAccumulator(section))
+            }
+        }
+        val maybeOutputErr = err.map { e => Pull.output1(Left(GroupingError(section.tableId, section.extension.tableIdExtension, e))) }.getOrElse(Pull.pure(()))
+        maybeOutputErr >> (acc.complete match {
+          case None => go(accumulatorByIds + (key -> acc))(tl)
+          case Some(sections) =>
+            Pull.output1(Right(sections)) >> go(accumulatorByIds - key)(tl)
+        })
       }
     }
 
@@ -105,24 +104,23 @@ object GroupedSections {
    */
   def groupGeneralConditionally(nonExtended: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]], groupExtended: ExtendedSection => Boolean = _ => true): Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = {
 
-    type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Stream.Handle[Pure, Section]]
+    type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Handle[Pure, Section]]
 
     def go(
       ext: Option[Chunk[ExtendedSection]] => Stepper[ExtendedSection, Either[GroupingError, GroupedSections[ExtendedSection]]],
       nonExt: Option[Chunk[Section]] => Stepper[Section, Either[GroupingError, GroupedSections[Section]]]
-    ): Stream.Handle[Pure, Section] => ThisPull = h => {
-      h.receive1 {
-        case section #: tl =>
-          section match {
-            case s: ExtendedSection if groupExtended(s) =>
-              ext(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
-                Pull.output(Chunk.indexedSeq(out)) >> go(next, nonExt)(tl)
-              }
-            case s: Section =>
-              nonExt(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
-                Pull.output(Chunk.indexedSeq(out)) >> go(ext, next)(tl)
-              }
-          }
+    ): Handle[Pure, Section] => ThisPull = h => {
+      h.receive1 { (section, tl) =>
+        section match {
+          case s: ExtendedSection if groupExtended(s) =>
+            ext(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+              Pull.output(Chunk.indexedSeq(out)) >> go(next, nonExt)(tl)
+            }
+          case s: Section =>
+            nonExt(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+              Pull.output(Chunk.indexedSeq(out)) >> go(ext, next)(tl)
+            }
+        }
       }
     }
 
