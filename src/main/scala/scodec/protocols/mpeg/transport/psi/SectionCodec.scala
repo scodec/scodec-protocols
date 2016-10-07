@@ -53,23 +53,24 @@ class SectionCodec private (cases: Map[Int, List[SectionCodec.Case[Any, Section]
   def decodeSection(header: SectionHeader)(bits: BitVector): Attempt[DecodeResult[Section]] =
     decoder(header).decode(bits)
 
-  def decoder(header: SectionHeader): Decoder[Section] = Decoder { bits =>
+  def decoder(header: SectionHeader): Decoder[Section] = {
+    decoder(header, Codec.encode(header).require)
+  }
+
+  def decoder(header: SectionHeader, headerBits: BitVector): Decoder[Section] = Decoder { bits =>
 
     def ensureCrcMatches(actual: Int, expected: Int) =
       if (actual == expected) { Attempt.successful(()) }
       else Attempt.failure(Err(s"CRC mismatch: calculated $expected does not equal $actual"))
 
-    def generateCrc(c: SectionCodec.Case[Any, Section], ext: SectionExtension, data: Any) = for {
-      encExt <- Codec[SectionExtension].encode(ext)
-      encData <- c.codec(header, verifyCrc).encode(data)
-      encHeader <- Codec[SectionHeader].encode(header)
-    } yield (crc32mpeg(encHeader ++ encExt ++ encData).toInt())
+    def generateCrc: Int =
+      crc32mpeg(headerBits ++ bits.take((header.length.toLong - 4) * 8)).toInt()
 
     def decodeExtended(c: SectionCodec.Case[Any, Section]): Decoder[(Option[SectionExtension], Any)] = for {
       ext <- Codec[SectionExtension]
       data <- fixedSizeBytes(header.length.toLong - 9, c.codec(header, verifyCrc))
       actualCrc <- int32
-      expectedCrc <- Decoder.liftAttempt { if (verifyCrc) generateCrc(c, ext, data) else Attempt.successful(actualCrc) }
+      expectedCrc = if (verifyCrc) generateCrc else actualCrc
       _ <- Decoder.liftAttempt(ensureCrcMatches(actualCrc, expectedCrc))
     } yield Some(ext) -> data
 

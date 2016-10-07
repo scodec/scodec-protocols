@@ -17,7 +17,7 @@ object Mpeg1Only {
     ("profile_and_level_indication" | uint8) ::
     ("chroma_format" | uint(2)) ::
     ("frame_rate_extension_flag" | bool) ::
-    ("reserved" | ignore(5))
+    ("reserved" | reserved(5))
   }.dropUnits.as[Mpeg1Only]
 }
 case class VideoStreamDescriptor(
@@ -47,7 +47,7 @@ object AudioStreamDescriptor {
     ("ID" | bool) ::
     ("layer" | uint(2)) ::
     ("variable_rate_audio_indicator" | bool) ::
-    ("reserved" | ignore(3))
+    ("reserved" | reserved(3))
   }.dropUnits.as[AudioStreamDescriptor]
 }
 
@@ -80,13 +80,13 @@ object HierarchyType {
 case class HierarchyDescriptor(hierarchyType: HierarchyType, hierarchyLayerIndex: Int, hierarchyEmbeddedLayerIndex: Int, hierarchyChannel: Int) extends TransportStreamDescriptor with ProgramStreamDescriptor
 object HierarchyDescriptor {
   val codec: Codec[HierarchyDescriptor] = {
-    ("reserved" | ignore(4)) ::
+    ("reserved" | reserved(4)) ::
     ("hierarchy_type" | Codec[HierarchyType]) ::
-    ("reserved" | ignore(2)) ::
+    ("reserved" | reserved(2)) ::
     ("hierarchy_layer_index" | uint(6)) ::
-    ("reserved" | ignore(2)) ::
+    ("reserved" | reserved(2)) ::
     ("hierarchy_embedded_layer_index" | uint(6)) ::
-    ("reserved" | ignore(2)) ::
+    ("reserved" | reserved(2)) ::
     ("hierarchy_channel" | uint(6))
   }.dropUnits.as[HierarchyDescriptor]
 }
@@ -143,7 +143,7 @@ object VideoWindowDescriptor {
 case class CADescriptor(caSystemId: Int, caPid: Pid, privateData: ByteVector) extends TransportStreamDescriptor with ProgramStreamDescriptor
 object CADescriptor {
   val codec: Codec[CADescriptor] = {
-    (("CA_system_id" | uint16) ~ (("reserved" | ignore(3)) ~> ("CA_PID" | Codec[Pid])) ~ bytes).flattenLeftPairs
+    (("CA_system_id" | uint16) ~ (reserved(3) ~> ("CA_PID" | Codec[Pid])) ~ bytes).flattenLeftPairs
   }.as[CADescriptor]
 }
 
@@ -185,10 +185,10 @@ case class SystemClockDescriptor(externalClockReferenceIndicator: Boolean, clock
 object SystemClockDescriptor {
   val codec: Codec[SystemClockDescriptor] = {
     ("external_clock_reference_indicator" | bool) ::
-    ("reserved" | ignore(1)) ::
+    ("reserved" | reserved(1)) ::
     ("clock_accuracy_integer" | uint(6)) ::
     ("clock_accuracy_exponent" | uint(3)) ::
-    ("reserved" | ignore(5))
+    ("reserved" | reserved(5))
   }.dropUnits.as[SystemClockDescriptor]
 }
 
@@ -197,7 +197,7 @@ object MultiplexBufferUtilizationDescriptor {
   val codec: Codec[MultiplexBufferUtilizationDescriptor] = {
     ("bound_valid_flag" | bool) ::
     ("LTW_offset_lower_bound" | uint(15)) ::
-    ("reserved" | ignore(1)) ::
+    ("reserved" | reserved(1)) ::
     ("LTW_offset_upper_bound" | uint(15))
   }.dropUnits.as[MultiplexBufferUtilizationDescriptor]
 }
@@ -212,7 +212,7 @@ object CopyrightDescriptor {
 case class MaximumBitrateDescriptor(maximumBitrate: Int) extends TransportStreamDescriptor
 object MaximumBitrateDescriptor {
   val codec: Codec[MaximumBitrateDescriptor] = {
-    ("reserved" | ignore(2)) ::
+    ("reserved" | reserved(2)) ::
     ("maximum_bitrate" | uint(22))
   }.dropUnits.as[MaximumBitrateDescriptor]
 }
@@ -227,9 +227,9 @@ object PrivateDataIndicatorDescriptor {
 case class SmoothingBufferDescriptor(sbLeakRate: Int, sbSize: Int) extends TransportStreamDescriptor with ProgramStreamDescriptor
 object SmoothingBufferDescriptor {
   val codec: Codec[SmoothingBufferDescriptor] = {
-    ("reserved" | ignore(2)) ::
+    ("reserved" | reserved(2)) ::
     ("sb_leak_rate" | uint(22)) ::
-    ("reserved" | ignore(2)) ::
+    ("reserved" | reserved(2)) ::
     ("sb_size" | uint(22))
   }.dropUnits.as[SmoothingBufferDescriptor]
 }
@@ -237,7 +237,7 @@ object SmoothingBufferDescriptor {
 case class StdDescriptor(leakValidFlag: Boolean) extends TransportStreamDescriptor
 object StdDescriptor {
   val codec: Codec[StdDescriptor] = {
-    ("reserved" | ignore(7)) ::
+    ("reserved" | reserved(7)) ::
     ("leak_valid_flag" | bool)
   }.dropUnits.as[StdDescriptor]
 }
