@@ -33,7 +33,7 @@ object ProgramMapTable {
   def fromSection(section: ProgramMapSection): ProgramMapTable = {
     val componentStreamMapping = section.componentStreamMapping.foldLeft(Map.empty[StreamType, List[ProgramMapRecord]]) { case (acc, (st, pmr)) =>
       acc.updated(st, acc.get(st).fold(List(pmr))(existing => pmr :: existing))
-    }
+    }.map { case (k, v) => (k, v.reverse) }
     ProgramMapTable(
       section.programNumber,
       section.extension.version,
