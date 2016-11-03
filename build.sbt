@@ -3,19 +3,17 @@ scodecModule := "scodec-protocols"
 scodecPrimaryModule
 scodecPrimaryModuleJvm
 
-crossScalaVersions := crossScalaVersions.value.filter { v => v.startsWith("2.11.") }
-// Disable 2.12 build until 2.12.0-RC2
-//crossScalaVersions := crossScalaVersions.value.filter { v => v.startsWith("2.11.") || v.startsWith("2.12.") }
+crossScalaVersions := crossScalaVersions.value.filter { v => v.startsWith("2.11.") || v.startsWith("2.12.") }
 
 contributors ++= Seq(Contributor("mpilquist", "Michael Pilquist"))
 
 rootPackage := "scodec.protocols"
 
 libraryDependencies ++= Seq(
-  "org.scodec" %% "scodec-core" % "1.10.2",
-  "org.scodec" %% "scodec-stream" % "1.0.0",
+  "org.scodec" %% "scodec-core" % "1.10.3",
+  "org.scodec" %% "scodec-stream" % "1.0.1",
   "org.scalatest" %% "scalatest" % "3.0.0" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.13.2" % "test"
+  "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
 )
 
 libraryDependencies ++= {
