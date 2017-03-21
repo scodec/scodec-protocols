@@ -6,6 +6,8 @@ package psi
 import fs2._
 import fs2.pipe.Stepper
 
+import scodec.bits.BitVector
+
 import psi.{ Table => TableMessage }
 
 import pipes._
@@ -15,11 +17,13 @@ abstract class TransportStreamEvent
 object TransportStreamEvent {
   case class Pes(pid: Pid, pes: PesPacket) extends TransportStreamEvent
   case class Table(pid: Pid, table: TableMessage) extends TransportStreamEvent
+  case class ScrambledPayload(pid: Pid, payload: BitVector) extends TransportStreamEvent
   case class Metadata[A](pid: Option[Pid], metadata: A) extends TransportStreamEvent
   case class Error(pid: Option[Pid], err: MpegError) extends TransportStreamEvent
 
   def pes(pid: Pid, pes: PesPacket): TransportStreamEvent = Pes(pid, pes)
   def table(pid: Pid, table: TableMessage): TransportStreamEvent = Table(pid, table)
+  def scrambledPayload(pid: Pid, content: BitVector): TransportStreamEvent = ScrambledPayload(pid, content)
   def metadata[A](md: A): TransportStreamEvent = Metadata(None, md)
   def metadata[A](pid: Pid, md: A): TransportStreamEvent = Metadata(Some(pid), md)
   def error(pid: Pid, e: MpegError): TransportStreamEvent = Error(Some(pid), e)
@@ -90,19 +94,29 @@ object TransportStreamEvent {
     tableBuilder: TableBuilder,
     group: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = GroupedSections.group
   ): Pipe[Pure, Packet, TransportStreamEvent] = {
-    val demuxed: Pipe[Pure, Packet, PidStamped[Either[DemultiplexerError, Demultiplexer.Result]]] =
-      Demultiplexer.demultiplex(sectionCodec)
-    demuxed andThen pipes.conditionallyFeed[
-      PidStamped[Either[MpegError, Section]],
-      TransportStreamEvent,
-      PidStamped[Either[DemultiplexerError, Demultiplexer.Result]]
-    ](sectionsToTables(group, tableBuilder), {
-      case PidStamped(pid, Right(Demultiplexer.SectionResult(section))) =>
-        Left(PidStamped(pid, Right(section)))
-      case PidStamped(pid, Right(Demultiplexer.PesPacketResult(p))) =>
-        Right(pes(pid, p))
-      case PidStamped(pid, Left(e)) =>
-        Left(PidStamped(pid, Left(e.toMpegError)))
+    val demuxed: Pipe[Pure, Packet, TransportStreamEvent] = {
+      val demuxed: Pipe[Pure, Packet, PidStamped[Either[DemultiplexerError, Demultiplexer.Result]]] =
+        Demultiplexer.demultiplex(sectionCodec)
+
+      demuxed andThen pipes.conditionallyFeed[
+        PidStamped[Either[MpegError, Section]],
+        TransportStreamEvent,
+        PidStamped[Either[DemultiplexerError, Demultiplexer.Result]]
+      ](sectionsToTables(group, tableBuilder), {
+        case PidStamped(pid, Right(Demultiplexer.SectionResult(section))) =>
+          Left(PidStamped(pid, Right(section)))
+        case PidStamped(pid, Right(Demultiplexer.PesPacketResult(p))) =>
+          Right(pes(pid, p))
+        case PidStamped(pid, Left(e)) =>
+          Left(PidStamped(pid, Left(e.toMpegError)))
+      })
+    }
+
+    pipes.conditionallyFeed[Packet, TransportStreamEvent, Packet](demuxed, {
+      case Packet(header, _, _, Some(payload)) if header.scramblingControl != 0 =>
+        Right(scrambledPayload(header.pid, payload))
+      case p @ Packet(_, _, _, _) =>
+        Left(p)
     })
   }
 
