@@ -99,10 +99,10 @@ object Packet {
 
   implicit def codec(implicit adaptationField: Codec[AdaptationField]): Codec[Packet] =
     "packet" | fixedSizeBytes(188,
-      ("header"           | Codec[TransportStreamHeader]                              ) >>:~ { hdr =>
-      ("adaptation_field" | conditional(hdr.adaptationFieldIncluded, adaptationField) ) ::
-      ("adaptation_field" | conditional(hdr.payloadUnitStartIndicator, uint8)         ) ::
-      ("payload"          | conditional(hdr.payloadIncluded, bits)                    )
+      ("header"                  | Codec[TransportStreamHeader]                              ) >>:~ { hdr =>
+      ("adaptation_field"        | conditional(hdr.adaptationFieldIncluded, adaptationField) ) ::
+      ("payload_start_indicator" | conditional(hdr.payloadUnitStartIndicator, uint8)         ) ::
+      ("payload"                 | conditional(hdr.payloadIncluded, bits)                    )
     }).as[Packet]
 
   def validateContinuity[F[_]]: Pipe[F, Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] = {
