@@ -22,7 +22,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), pasEnc)
 
-        val p = Stream.emit(packet).pure through Demultiplexer.demultiplex(sectionCodec)
+        val p = Stream.emit(packet) through Demultiplexer.demultiplex(sectionCodec)
         p.toList shouldBe List(pas).map(s => PidStamped(Pid(0), Right(Demultiplexer.SectionResult(s))))
       }
 
@@ -34,7 +34,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val packets = Packet.packetize(Pid(0), ContinuityCounter(0), pasEnc)
 
-        val p = Stream.emits(packets).pure through Demultiplexer.demultiplex(sectionCodec)
+        val p = Stream.emits(packets) through Demultiplexer.demultiplex(sectionCodec)
         p.toList shouldBe List(pas).map(s => PidStamped(Pid(0), Right(Demultiplexer.SectionResult(s))))
       }
 
@@ -47,7 +47,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val packets = Packet.packetize(Pid(0), ContinuityCounter(1), pasEnc)
         val withDiscontinuity = packets.updated(0, packets.head.copy(header = packets.head.header.copy(continuityCounter = ContinuityCounter(15))))
 
-        val p = Stream.emits(withDiscontinuity).pure through Demultiplexer.demultiplex(sectionCodec)
+        val p = Stream.emits(withDiscontinuity) through Demultiplexer.demultiplex(sectionCodec)
         p.toList shouldBe List(PidStamped(Pid(0), Left(DemultiplexerError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2)))))
       }
 
@@ -65,7 +65,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val ss255 = ss0.update(indexOfInt.toLong, 255.toByte)
 
         val packets = Packet.packetizeMany(Pid(0), ContinuityCounter(0), ss255.bits +: encodedSections)
-        val p = Stream.emits(packets).pure through Demultiplexer.demultiplex(sc)
+        val p = Stream.emits(packets) through Demultiplexer.demultiplex(sc)
 
         p.toList shouldBe (
           PidStamped(Pid(0), Left(DemultiplexerError.Decoding(hex"002001ff".bits, Err("expected constant BitVector(1 bits, 0x0) but got BitVector(1 bits, 0x8)")))) +:
@@ -78,7 +78,7 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.takeRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
-        val p = Stream.emit(packet).pure through Demultiplexer.demultiplex(sectionCodec)
+        val p = Stream.emit(packet) through Demultiplexer.demultiplex(sectionCodec)
         p.toList shouldBe List(PidStamped(Pid(0), Left(DemultiplexerError.Decoding(corruptedSection, Err("CRC mismatch: calculated 18564404 does not equal -18564405")))))
       }
 
@@ -88,9 +88,8 @@ class SectionCodecTest extends ProtocolsSpec {
         val pasEnc = sectionCodec.encode(pas).require
         val corruptedSection = pasEnc.dropRight(32) ++ (~pasEnc.dropRight(32))
         val packet = Packet.payload(Pid(0), ContinuityCounter(0), Some(0), corruptedSection)
-        val p = Stream.emit(packet).pure through Demultiplexer.demultiplex(sectionCodec)
+        val p = Stream.emit(packet) through Demultiplexer.demultiplex(sectionCodec)
         p.toList shouldBe List(pas).map(s => PidStamped(Pid(0), Right(Demultiplexer.SectionResult(s))))
-
       }
     }
   }

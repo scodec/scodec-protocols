@@ -3,9 +3,12 @@ package time
 
 import language.implicitConversions
 
-import java.time.Instant
-import fs2._
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
+
+import java.time.Instant
+import cats.effect.IO
+import fs2._
 import scodec.bits._
 
 class TimeStampedTest extends ProtocolsSpec {
@@ -18,7 +21,7 @@ class TimeStampedTest extends ProtocolsSpec {
       implicit def doubleToInstant(x: Double): Instant = Instant.ofEpochSecond(x.toLong)
 
       "emits accumulated feature values for each specified time period and emits a final value" in {
-        val data = Stream.pure(
+        val data = Stream(
           TimeStamped(0, 1),
           TimeStamped(0.5, 2),
           TimeStamped(1, 1),
@@ -31,7 +34,7 @@ class TimeStampedTest extends ProtocolsSpec {
       }
 
       "emits 0s when values are skipped over" in {
-        val data = Stream.emits(Seq(TimeStamped(0, 1), TimeStamped(3.3, 2))).pure
+        val data = Stream(TimeStamped(0, 1), TimeStamped(3.3, 2))
         data.through(TimeStamped.rate(1.second)(identity[Int])(0, _ + _)).toVector shouldBe Vector(
           TimeStamped(1, 1), TimeStamped(2, 0), TimeStamped(3, 0), TimeStamped(4, 2))
 
@@ -40,13 +43,13 @@ class TimeStampedTest extends ProtocolsSpec {
       }
 
       "supports calculation of an average bitrate" in {
-        val data = Stream.emits(Seq(
+        val data = Stream(
           TimeStamped(0, hex"deadbeef"),
           TimeStamped(1, hex"deadbeef"),
           TimeStamped(1.5, hex"deadbeef"),
           TimeStamped(2.5, hex"deadbeef"),
           TimeStamped(2.6, hex"deadbeef")
-        )).pure
+        )
 
         val bitsPerSecond = data.through(TimeStamped.rate(1.second)((x: ByteVector) => x.size * 8L)(0L, _ + _))
 
@@ -65,7 +68,7 @@ class TimeStampedTest extends ProtocolsSpec {
 
     "support filtering a source of timestamped values such that output is monotonically increasing in time" which {
       def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), ())
-      val data = Stream.emits(Seq(0, -2, -1, 1, 5, 3, 6) map ts).pure
+      val data = Stream(0, -2, -1, 1, 5, 3, 6).map(ts)
 
       "supports dropping out-of-order values" in {
         val filtered = data through TimeStamped.increasing
@@ -81,7 +84,7 @@ class TimeStampedTest extends ProtocolsSpec {
     "support reordering timestamped values over a specified time buffer such that output is monotonically increasing in time" which {
       def ts(value: Int) = TimeStamped(Instant.ofEpochMilli(value.toLong), value.toLong)
 
-      val onTheSecond = Stream.emits(1 to 10).map { x => ts(x * 1000) }.pure
+      val onTheSecond = Stream.emits(1 to 10).map { x => ts(x * 1000) }
       val onTheQuarterPast = onTheSecond map { _ mapTime { t => t.plusMillis(250) } }
 
       "reorders when all out of order values lie within the buffer time" in {
@@ -96,7 +99,7 @@ class TimeStampedTest extends ProtocolsSpec {
         val events = Stream.emits(1 to 10).flatMap { x =>
           val local = (-10 to 10).map { y => ts((x * 1000) + (y * 10)) }
           Stream.emits(scala.util.Random.shuffle(local))
-        }.pure
+        }
         val reordered200ms = events through TimeStamped.reorderLocally(200.milliseconds)
         reordered200ms.toList shouldBe events.toList.sorted
 
@@ -114,30 +117,34 @@ class TimeStampedTest extends ProtocolsSpec {
     }
 
     "support throttling a time stamped source" in {
-      implicit val scheduler = Scheduler.fromFixedDaemonPool(2)
-      implicit val strategy = Strategy.fromFixedDaemonPool(2)
-      def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), value.toLong)
-      val source = Stream(ts(0), ts(1), ts(2), ts(3), ts(4)).covary[Task]
-      def time[A](f: => A): Long = {
-        val start = System.nanoTime
-        val _ = f
-        System.nanoTime - start
+      val executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+      try {
+        implicit val scheduler: Scheduler = Scheduler.fromScheduledExecutorService(executor)
+        def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), value.toLong)
+        val source = Stream(ts(0), ts(1), ts(2), ts(3), ts(4)).covary[IO]
+        def time[A](f: => A): Long = {
+          val start = System.nanoTime
+          val _ = f
+          System.nanoTime - start
+        }
+        time(TimeStamped.throttle(source, 1.0, 25.millis).run.unsafeRunSync) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
+        time(TimeStamped.throttle(source, 2.0, 25.millis).run.unsafeRunSync) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
+      } finally {
+        executor.shutdown()
       }
-      time(TimeStamped.throttle(source, 1.0).run.unsafeRun) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
-      time(TimeStamped.throttle(source, 2.0).run.unsafeRun) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
     }
 
     "support lifting a Pipe[Pure, TimeStamped[A], TimeStamped[B]] in to a Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]]" in {
       def ts(value: Int) = TimeStamped(Instant.ofEpochMilli(value.toLong), value.toLong)
-      val source = Stream.emits(Seq(
+      val source = Stream(
         TimeStamped(Instant.ofEpochMilli(1), Left(1)),
         TimeStamped(Instant.ofEpochMilli(2), Right(2)),
         TimeStamped(Instant.ofEpochMilli(3), Right(3)),
         TimeStamped(Instant.ofEpochMilli(4), Left(4)),
         TimeStamped(Instant.ofEpochMilli(5), Left(5)),
         TimeStamped(Instant.ofEpochMilli(6), Right(6))
-      )).pure
-      val square: Pipe[Pure, TimeStamped[Int], TimeStamped[Int]] = pipe.lift(_ map { x => x * x })
+      )
+      val square: Pipe[Pure, TimeStamped[Int], TimeStamped[Int]] = _.map(_.map { x => x * x })
       source.through(TimeStamped.liftL(square)).toVector shouldBe Vector(
         TimeStamped(Instant.ofEpochMilli(1), Left(1)),
         TimeStamped(Instant.ofEpochMilli(2), Right(2)),

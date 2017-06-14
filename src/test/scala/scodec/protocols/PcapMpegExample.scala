@@ -1,5 +1,6 @@
 package scodec.protocols
 
+import cats.effect.IO
 import scodec.protocols.time.TimeStamped
 import scodec.stream.StreamDecoder
 import scodec.stream.decode
@@ -34,5 +35,5 @@ object PcapMpegExample extends App {
       } yield packets
   }
 
-  decoder.decodeMmap(mpegPcapChannel).runLog.unsafeRun.foreach(println)
+  decoder.decodeMmap[IO](mpegPcapChannel).runLog.unsafeRunSync.foreach(println)
 }

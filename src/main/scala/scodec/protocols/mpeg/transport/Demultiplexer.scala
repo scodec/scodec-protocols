@@ -48,14 +48,14 @@ object Demultiplexer {
     }
   }
 
-  private case class StepResult[+A](state: Option[DecodeState], output: Vector[Either[DemultiplexerError, A]]) {
+  private case class StepResult[+A](state: Option[DecodeState], output: Segment[Either[DemultiplexerError, A],Unit]) {
     def ++[AA >: A](that: StepResult[AA]): StepResult[AA] = StepResult(that.state, output ++ that.output)
   }
   private object StepResult {
-    def noOutput(state: Option[DecodeState]): StepResult[Nothing] = apply(state, Vector.empty)
-    def state(state: DecodeState): StepResult[Nothing] = StepResult(Some(state), Vector.empty)
-    def oneResult[A](state: Option[DecodeState], output: A): StepResult[A] = apply(state, Vector(Right(output)))
-    def oneError(state: Option[DecodeState], err: DemultiplexerError): StepResult[Nothing] = apply(state, Vector(Left(err)))
+    def noOutput(state: Option[DecodeState]): StepResult[Nothing] = apply(state, Segment.empty)
+    def state(state: DecodeState): StepResult[Nothing] = StepResult(Some(state), Segment.empty)
+    def oneResult[A](state: Option[DecodeState], output: A): StepResult[A] = apply(state, Segment.singleton(Right(output)))
+    def oneError(state: Option[DecodeState], err: DemultiplexerError): StepResult[Nothing] = apply(state, Segment.singleton(Left(err)))
   }
 
   /**
@@ -142,8 +142,8 @@ object Demultiplexer {
             decoded ++ processHeader(remainder, false, payloadUnitStartAfterData)
           case Attempt.Failure(err) =>
             val out = {
-              if (err.isInstanceOf[ResetDecodeState]) Vector.empty
-              else Vector(Left(DemultiplexerError.Decoding(
+              if (err.isInstanceOf[ResetDecodeState]) Segment.empty
+              else Segment.singleton(Left(DemultiplexerError.Decoding(
                 awaitingBody.headerBits ++
                   awaitingBody.neededBits.
                     map { n => awaitingBody.bitsPostHeader.take(n) }.
@@ -207,22 +207,22 @@ object Demultiplexer {
       }
     }
 
-    type ThisHandle = Handle[Pure, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]]
-    type ThisPull = Pull[Pure, PidStamped[Either[DemultiplexerError, Out]], ThisHandle]
+    type ThisPull = Pull[Pure, PidStamped[Either[DemultiplexerError, Out]], Unit]
 
-    def go(state: Map[Pid, DecodeState]): ThisHandle => ThisPull = h => {
-      h.receive1 {
-        case (Left(discontinuity), tl) =>
-          Pull.output1(PidStamped(discontinuity.pid, Left(discontinuity.value))) >> go(state - discontinuity.pid)(tl)
-        case (Right(packet), tl) =>
+    def go(state: Map[Pid, DecodeState], s: Stream[Pure, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]]): ThisPull = {
+      s.pull.uncons1.flatMap {
+        case Some((Left(discontinuity), tl)) =>
+          Pull.output1(PidStamped(discontinuity.pid, Left(discontinuity.value))) >> go(state - discontinuity.pid, tl)
+        case Some((Right(packet), tl)) =>
           val pid = packet.header.pid
           val oldStateForPid = state.get(pid)
           val result = handlePacket(oldStateForPid, packet)
           val newState = result.state.map { s => state.updated(pid, s) }.getOrElse(state - pid)
-          Pull.output(Chunk.indexedSeq(result.output.map { e => PidStamped(pid, e) })) >> go(newState)(tl)
+          Pull.output(result.output.map { e => PidStamped(pid, e) }) >> go(newState, tl)
+        case None => Pull.done
       }
     }
 
-    Packet.validateContinuity[Pure] andThen { _ pull go(Map.empty) }
+    Packet.validateContinuity[Pure] andThen { in => go(Map.empty, in).stream }
   }
 }

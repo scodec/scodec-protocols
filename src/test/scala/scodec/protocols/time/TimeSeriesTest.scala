@@ -12,7 +12,7 @@ class TimeSeriesTest extends ProtocolsSpec {
   "the TimeSeries type" should {
 
     "interpolating time ticks in a timestamped stream" in {
-      val events = Stream.pure(ts(1), ts(2), ts(3))
+      val events = Stream(ts(1), ts(2), ts(3))
       val withTicksDefault = events.through(TimeSeries.interpolateTicks()).toList
       withTicksDefault shouldBe List(
         TimeStamped(Instant.ofEpochSecond(1), Some(1)),
@@ -36,4 +36,3 @@ class TimeSeriesTest extends ProtocolsSpec {
     }
   }
 }
-

@@ -3,10 +3,13 @@ package time
 
 import language.higherKinds
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
+import cats.effect.Effect
+
 import fs2._
-import fs2.pipe.Stepper
+import fs2.Pipe.Stepper
 
 import java.time.Instant
 
@@ -40,28 +43,31 @@ object TimeStamped {
    * timestamps are preserved on elements that flow through the stream.
    */
   def preserveTimeStamps[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, TimeStamped[A], TimeStamped[B]] = {
-    def go(time: Option[Instant], stepper: Stepper[A, B]): Handle[Pure, TimeStamped[A]] => Pull[Pure, TimeStamped[B], Handle[Pure, TimeStamped[A]]] = { h =>
+    def go(time: Option[Instant], stepper: Stepper[A, B], s: Stream[Pure, TimeStamped[A]]): Pull[Pure, TimeStamped[B], Unit] = {
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
-        case Stepper.Emits(chunk, next) =>
+        case Stepper.Emits(segment, next) =>
           time match {
-            case Some(ts) => Pull.output(chunk.map { b => TimeStamped(ts, b) }) >> go(time, next)(h)
-            case None => go(time, next)(h)
+            case Some(ts) => Pull.output(segment.map { b => TimeStamped(ts, b) }) >> go(time, next, s)
+            case None => go(time, next, s)
           }
         case Stepper.Await(receive) =>
-          h.receive1 { (tsa, tl) => go(Some(tsa.time), receive(Some(Chunk.singleton(tsa.value))))(tl) }
+          s.pull.uncons1.flatMap {
+            case Some((tsa, tl)) => go(Some(tsa.time), receive(Some(Chunk.singleton(tsa.value))), tl)
+            case None => Pull.done
+          }
       }
     }
 
-    _ pull go(None, pipe.stepper(p))
+    in => go(None, Pipe.stepper(p), in).stream
   }
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
    * `TimeStamped[B]` where `B` is an accumulated feature of `A` over a second.
    *
-   * For example, the emitted bits per second of a `Stream[Task, ByteVector]` can be calculated
+   * For example, the emitted bits per second of a `Stream[F, ByteVector]` can be calculated
    * using `perSecondRate(_.size * 8)`, which yields a stream of the emitted bits per second.
    *
    * @param f function which extracts a feature of `A`
@@ -75,7 +81,7 @@ object TimeStamped {
    *
    * Every incoming `A` is echoed to the output.
    *
-   * For example, the emitted bits per second of a `Stream[Task, ByteVector]` can be calculated
+   * For example, the emitted bits per second of a `Stream[F, ByteVector]` can be calculated
    * using `perSecondRate(_.size * 8)`, which yields a stream of the emitted bits per second.
    *
    * @param f function which extracts a feature of `A`
@@ -89,7 +95,7 @@ object TimeStamped {
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
    * `TimeStamped[B]` where `B` is an accumulated feature of `A` over a specified time period.
    *
-   * For example, the emitted bits per second of a `Stream[Task, ByteVector]` can be calculated
+   * For example, the emitted bits per second of a `Stream[F, ByteVector]` can be calculated
    * using `rate(1.0)(_.size * 8)`, which yields a stream of the emitted bits per second.
    *
    * @param over time period over which to calculate
@@ -98,7 +104,7 @@ object TimeStamped {
    * @param combine closed function on `B` which forms a monoid with `zero`
    */
   def rate[F[_], A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[B]] =
-    in => withRate(over)(f)(zero, combine)(in) through pipe.collect { case TimeStamped(ts, Left(b)) => TimeStamped(ts, b) }
+    in => withRate(over)(f)(zero, combine)(in).collect { case TimeStamped(ts, Left(b)) => TimeStamped(ts, b) }
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
@@ -106,7 +112,7 @@ object TimeStamped {
    *
    * Every incoming `A` is echoed to the output.
    *
-   * For example, the emitted bits per second of a `Stream[Task, ByteVector]` can be calculated
+   * For example, the emitted bits per second of a `Stream[F, ByteVector]` can be calculated
    * using `rate(1.0)(_.size * 8)`, which yields a stream of the emitted bits per second.
    *
    * @param over time period over which to calculate
@@ -116,21 +122,20 @@ object TimeStamped {
    */
   def withRate[F[_], A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[Either[B, A]]] = {
     val overMillis = over.toMillis
-    def go(start: Instant, acc: B): Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[Either[B, A]], Handle[F, TimeStamped[A]]] = h => {
+    def go(start: Instant, acc: B, s: Stream[F, TimeStamped[A]]): Pull[F, TimeStamped[Either[B, A]], Unit] = {
       val end = start plusMillis overMillis
-      h.await1Option.flatMap {
+      s.pull.uncons1.flatMap {
         case Some((tsa, tl)) =>
-          if (tsa.time isBefore end) Pull.output1(tsa map Right.apply) >> go(start, combine(acc, f(tsa.value)))(tl)
-          else Pull.output1(TimeStamped(end, Left(acc))) >> go(end, zero)(tl.push1(tsa))
+          if (tsa.time isBefore end) Pull.output1(tsa map Right.apply) >> go(start, combine(acc, f(tsa.value)), tl)
+          else Pull.output1(TimeStamped(end, Left(acc))) >> go(end, zero, tl.cons1(tsa))
         case None =>
-          Pull.output1(TimeStamped(end, Left(acc))) >> Pull.done
+          Pull.output1(TimeStamped(end, Left(acc)))
       }
     }
-    _ pull { h =>
-      h.receive1 { (tsa, tl) =>
-        Pull.output1(tsa.map(Right.apply)) >> go(tsa.time, f(tsa.value))(tl)
-      }
-    }
+    in => in.pull.uncons1.flatMap {
+      case Some((tsa, tl)) => Pull.output1(tsa.map(Right.apply)) >> go(tsa.time, f(tsa.value), tl)
+      case None => Pull.done
+    }.stream
   }
 
   /**
@@ -151,50 +156,54 @@ object TimeStamped {
    * This is particularly useful when timestamped data can be read in bulk (e.g., from a capture file)
    * but should be "played back" at real time speeds.
    */
-  def throttle[A](source: Stream[Task, TimeStamped[A]], throttlingFactor: Double)(implicit S: Strategy, scheduler: Scheduler): Stream[Task, TimeStamped[A]] = {
+  def throttle[F[_], A](source: Stream[F, TimeStamped[A]], throttlingFactor: Double, tickResolution: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext, scheduler: Scheduler): Stream[F, TimeStamped[A]] = {
 
-    val tickDuration = 100.milliseconds
-    val ticksPerSecond = 1.second.toMillis / tickDuration.toMillis
+    val ticksPerSecond = 1.second.toMillis / tickResolution.toMillis
 
-    def doThrottle: Pipe2[Task, TimeStamped[A], Unit, TimeStamped[A]] = {
+    def doThrottle: Pipe2[F, TimeStamped[A], Unit, TimeStamped[A]] = {
 
-      type PullFromSourceOrTicks = (Handle[Task, TimeStamped[A]], Handle[Task, Unit]) => Pull[Task, TimeStamped[A], (Handle[Task, TimeStamped[A]], Handle[Task, Unit])]
+      type PullFromSourceOrTicks = (Stream[F, TimeStamped[A]], Stream[F, Unit]) => Pull[F, TimeStamped[A], Unit]
 
       def takeUpto(chunk: Chunk[TimeStamped[A]], upto: Instant): (Chunk[TimeStamped[A]], Chunk[TimeStamped[A]]) = {
         val uptoMillis = upto.toEpochMilli
         val toTake = chunk.indexWhere { _.time.toEpochMilli > uptoMillis }.getOrElse(chunk.size)
-        (chunk.take(toTake), chunk.drop(toTake))
+        chunk.strict.splitAt(toTake)
       }
 
       def read(upto: Instant): PullFromSourceOrTicks = { (src, ticks) =>
-        src.receive { (chunk, tl) =>
-          if (chunk.isEmpty) read(upto)(tl, ticks)
-          else {
-            val (toOutput, pending) = takeUpto(chunk, upto)
-            if (pending.isEmpty) Pull.output(toOutput) >> read(upto)(tl, ticks)
-            else Pull.output(toOutput) >> awaitTick(upto, pending)(tl, ticks)
-          }
+        src.pull.unconsChunk.flatMap {
+          case Some((chunk, tl)) =>
+            if (chunk.isEmpty) read(upto)(tl, ticks)
+            else {
+              val (toOutput, pending) = takeUpto(chunk, upto)
+              if (pending.isEmpty) Pull.output(toOutput) >> read(upto)(tl, ticks)
+              else Pull.output(toOutput) >> awaitTick(upto, pending)(tl, ticks)
+            }
+          case None =>  Pull.done
         }
       }
 
       def awaitTick(upto: Instant, pending: Chunk[TimeStamped[A]]): PullFromSourceOrTicks = { (src, ticks) =>
-        ticks.receive1 { (tick, tl) =>
-          val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
-          val (toOutput, stillPending) = takeUpto(pending, newUpto)
-          if (stillPending.isEmpty) {
-            Pull.output(toOutput) >> read(newUpto)(src, tl)
-          } else {
-            Pull.output(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
-          }
+        ticks.pull.uncons1.flatMap {
+          case Some((tick, tl)) =>
+            val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
+            val (toOutput, stillPending) = takeUpto(pending, newUpto)
+            if (stillPending.isEmpty) {
+              Pull.output(toOutput) >> read(newUpto)(src, tl)
+            } else {
+              Pull.output(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
+            }
+          case None => Pull.done
         }
       }
 
-      _.pull2(_) {
-        (src, ticks) => src.receive1 { (tsa, tl) => Pull.output1(tsa) >> read(tsa.time)(tl, ticks) }
-      }
+      (src, ticks) => src.pull.uncons1.flatMap {
+        case Some((tsa, tl)) => Pull.output1(tsa) >> read(tsa.time)(tl, ticks)
+        case None => Pull.done
+      }.stream
     }
 
-    (source through2 time.awakeEvery[Task](tickDuration).map(_ => ()))(doThrottle)
+    (source through2 time.awakeEvery[F](tickResolution).as(()))(doThrottle)
   }
 
   /**
@@ -203,7 +212,7 @@ object TimeStamped {
    * dropped.
    */
   def increasing[F[_], A]: Pipe[F, TimeStamped[A], TimeStamped[A]] =
-    increasingW andThen pipe.collect { case Right(out) => out }
+    increasingW.andThen(_.collect { case Right(out) => out })
 
   /**
    * Stream transducer that filters the specified timestamped values to ensure
@@ -212,18 +221,11 @@ object TimeStamped {
    * to the writer side of the writer.
    */
   def increasingW[F[_], A]: Pipe[F, TimeStamped[A], Either[TimeStamped[A], TimeStamped[A]]] = {
-    def notBefore(last: Instant): Handle[F, TimeStamped[A]] => Pull[F, Either[TimeStamped[A], TimeStamped[A]], Handle[F, TimeStamped[A]]] = h => {
-      h.receive1 { (tsa, tl) =>
-        val now = tsa.time
-        if (last.toEpochMilli <= now.toEpochMilli) Pull.output1(Right(tsa)) >> notBefore(now)(tl)
-        else Pull.output1(Left(tsa)) >> notBefore(last)(tl)
-      }
-    }
-
-    _ pull { h =>
-      h.receive1 { (tsa, tl) =>
-        Pull.output1(Right(tsa)) >> notBefore(tsa.time)(tl)
-      }
+    _.scanSegments(Long.MinValue) { (last, segment) =>
+      segment.mapAccumulate(last) { (last, tsa) =>
+        val now = tsa.time.toEpochMilli
+        if (last <= now) (now, Right(tsa)) else (last, Left(tsa))
+      }.mapResult { case (_, last) => last }
     }
   }
 
@@ -235,7 +237,7 @@ object TimeStamped {
    * Values may be dropped from the source stream if they were not successfully reordered.
    */
   def reorderLocally[F[_], A](over: FiniteDuration): Pipe[F, TimeStamped[A], TimeStamped[A]] =
-    reorderLocallyW(over) andThen pipe.collect { case Right(tsa) => tsa }
+    reorderLocallyW(over).andThen(_.collect { case Right(tsa) => tsa })
 
   /**
    * Stream transducer that reorders a stream of timestamped values that are mostly ordered,
@@ -264,7 +266,7 @@ object TimeStamped {
    *
    * Caution: this transducer should only be used on streams that are mostly ordered.
    * In the worst case, if the source is in reverse order, all values in the source
-   * will be accumulated in to the buffer until the source halts, and then the{
+   * will be accumulated in to the buffer until the source halts, and then the
    * values will be emitted in order.
    */
   def attemptReorderLocally[F[_], A](over: FiniteDuration): Pipe[F, TimeStamped[A], TimeStamped[A]] = {
@@ -274,66 +276,71 @@ object TimeStamped {
     def outputMapValues(m: SortedMap[Long, Vector[TimeStamped[A]]]) =
       Pull.output(Chunk.seq(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }))
 
-    def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]]): Handle[F, TimeStamped[A]] => Pull[F, TimeStamped[A], Handle[Pure, TimeStamped[A]]] = h => {
-      h.await1Option.flatMap {
-        case Some((tsa, tl)) =>
-          val tsaTimeMillis = tsa.time.toEpochMilli
-          val until = tsaTimeMillis - overMillis
-          val (toOutput, toBuffer) = buffered span { case (x, _) => x <= until }
-          val updatedBuffer = toBuffer + (tsaTimeMillis -> (toBuffer.getOrElse(tsaTimeMillis, Vector.empty[TimeStamped[A]]) :+ tsa))
-          outputMapValues(toOutput) >> go(updatedBuffer)(tl)
+    def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]], s: Stream[F, TimeStamped[A]]): Pull[F, TimeStamped[A], Unit] = {
+      s.pull.unconsChunk.flatMap {
+        case Some((hd, tl)) =>
+          val all = hd.toVector.foldLeft(buffered) { (acc, tsa) =>
+            val k = tsa.time.toEpochMilli
+            acc.updated(k, acc.getOrElse(k, Vector.empty) :+ tsa)
+          }
+          if (all.isEmpty) go(buffered, tl)
+          else {
+            val until = all.last._2.head.time.toEpochMilli - overMillis
+            val (toOutput, toBuffer) = all span { case (x, _) => x <= until }
+            outputMapValues(toOutput) >> go(toBuffer, tl)
+          }
         case None =>
-          outputMapValues(buffered) >> Pull.done
+          outputMapValues(buffered)
       }
     }
 
-    _ pull go(SortedMap.empty)
+    in => go(SortedMap.empty, in).stream
   }
 
   def liftL[A, B, C](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]] = {
-    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]]): Handle[Pure, TimeStamped[Either[A, C]]] => Pull[Pure, TimeStamped[Either[B, C]], Handle[Pure, TimeStamped[Either[A, C]]]] = h => {
+    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]], s: Stream[Pure, TimeStamped[Either[A, C]]]): Pull[Pure, TimeStamped[Either[B, C]], Unit] = {
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
         case Stepper.Emits(chunk, next) =>
-          Pull.output(chunk.map { tsb => tsb.map { b => Left(b): Either[B, C] }}) >> go(next)(h)
+          Pull.output(chunk.map { tsb => tsb.map { b => Left(b): Either[B, C] }}) >> go(next, s)
         case Stepper.Await(receive) =>
-          h.receive { (chunk, tl) =>
-            chunk.uncons match {
-              case None =>
-                go(stepper)(tl)
-              case Some((head @ TimeStamped(time, Right(c)), tail)) =>
-                val numHeadRights = {
-                  val indexOfFirstLeft = tail.indexWhere(_.value.isLeft)
-                  indexOfFirstLeft match {
-                    case None => chunk.size
-                    case Some(idx) => 1 + idx
+          s.pull.unconsChunk.flatMap {
+            case Some((hd, tl)) =>
+              hd.uncons1 match {
+                case Left(_) =>
+                  go(stepper, tl)
+                case Right((head @ TimeStamped(time, Right(c)), tail)) =>
+                  val numHeadRights = {
+                    val indexOfFirstLeft = tail.toChunk.indexWhere(_.value.isLeft)
+                    indexOfFirstLeft match {
+                      case None => hd.size
+                      case Some(idx) => 1 + idx
+                    }
                   }
-                }
-                val toOutput = chunk.take(numHeadRights).asInstanceOf[Chunk[TimeStamped[Either[B, C]]]]
-                val remainder = chunk.drop(numHeadRights)
-                Pull.output(toOutput) >> go(stepper)(if (remainder.isEmpty) tl else tl.push(remainder))
-              case Some((TimeStamped(time, Left(a)), tail)) =>
-                val numHeadLefts = {
-                  val indexOfFirstRight = tail.indexWhere(_.value.isRight)
-                  indexOfFirstRight match {
-                    case None => chunk.size
-                    case Some(idx) => 1 + idx
+                  val (toOutput, suffix) = hd.strict.splitAt(numHeadRights)
+                  Pull.output(toOutput.asInstanceOf[Chunk[TimeStamped[Either[B, C]]]]) >> go(stepper, if (suffix.isEmpty) tl else tl.cons(suffix))
+                case Right((TimeStamped(time, Left(a)), tail)) =>
+                  val numHeadLefts = {
+                    val indexOfFirstRight = tail.toChunk.indexWhere(_.value.isRight)
+                    indexOfFirstRight match {
+                      case None => hd.size
+                      case Some(idx) => 1 + idx
+                    }
                   }
-                }
-                val toFeed = chunk.take(numHeadLefts).map { _ map { case Left(a) => a; case Right(_) => sys.error("Chunk is all lefts!") } }
-                val remainder = chunk.drop(numHeadLefts)
-                go(receive(Some(toFeed)))(if (remainder.isEmpty) tl else tl.push(remainder))
-            }
+                  val (prefix, suffix) = hd.strict.splitAt(numHeadLefts)
+                  val toFeed = prefix.map { _.map { case Left(a) => a; case Right(_) => sys.error("Chunk is all lefts!") } }
+                  go(receive(Some(toFeed)), if (suffix.isEmpty) tl else tl.cons(suffix))
+              }
+            case None => Pull.done
           }
       }
     }
-    _ pull go(pipe.stepper(p))
+    in => go(Pipe.stepper(p), in).stream
   }
 
   def liftR[A, B, C](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): Pipe[Pure, TimeStamped[Either[C, A]], TimeStamped[Either[C, B]]] = {
-    def swap[X, Y]: Pipe[Pure, TimeStamped[Either[X, Y]], TimeStamped[Either[Y, X]]] =
-      pipe.lift((_: TimeStamped[Either[X, Y]]).map(_.swap))
+    def swap[X, Y]: Pipe[Pure, TimeStamped[Either[X, Y]], TimeStamped[Either[Y, X]]] = _.map(_.map(_.swap))
     swap[C, A].andThen(liftL(p)).andThen(swap[B, C])
   }
 }

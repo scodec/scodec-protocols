@@ -19,7 +19,7 @@ class GroupingTest extends ProtocolsSpec {
       }
 
       "handles stream of a specific table id and extension" in {
-        val p = Stream.emits(pat3.toSections.list).pure.through(des).map {
+        val p = Stream.emits(pat3.toSections.list).through(des).map {
           case Right(sections) => ProgramAssociationTable.fromSections(sections)
           case l @ Left(_) => l
         }
@@ -30,7 +30,7 @@ class GroupingTest extends ProtocolsSpec {
         val patA = pat3
         val patB = pat3.copy(tsid = TransportStreamId(pat3.tsid.value + 1), programByPid = pat3.programByPid.map { case (prg, Pid(n)) => prg -> Pid(n + 1)} )
 
-        val sections = Stream.emits(patA.toSections.list).pure interleave Stream.emits(patB.toSections.list)
+        val sections = Stream.emits(patA.toSections.list) interleave Stream.emits(patB.toSections.list)
         val p = sections.through(des).map { _.right.flatMap(ProgramAssociationTable.fromSections) }
         p.toList shouldBe List(Right(patA), Right(patB))
       }

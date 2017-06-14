@@ -8,7 +8,7 @@ import language.higherKinds
 import scala.reflect.ClassTag
 
 import fs2._
-import fs2.pipe.Stepper
+import fs2.Pipe.Stepper
 
 import pipes._
 
@@ -47,32 +47,32 @@ object GroupedSections {
     type Key = (Int, Int)
     def toKey(section: A): Key = (section.tableId, section.extension.tableIdExtension)
 
-    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]]): Handle[F, A] => Pull[F, Either[GroupingError, GroupedSections[A]], Handle[F, A]] = h => {
-      h.receive1 { (section, tl) =>
-        val key = toKey(section)
-        val (err, acc) = accumulatorByIds.get(key) match {
-          case None => (None, SectionAccumulator(section))
-          case Some(acc) =>
-            acc.add(section) match {
-              case Right(acc) => (None, acc)
-              case Left(err) =>
-                (Some(err), SectionAccumulator(section))
-            }
-        }
-        val maybeOutputErr = err.map { e => Pull.output1(Left(GroupingError(section.tableId, section.extension.tableIdExtension, e))) }.getOrElse(Pull.pure(()))
-        maybeOutputErr >> (acc.complete match {
-          case None => go(accumulatorByIds + (key -> acc))(tl)
-          case Some(sections) =>
-            Pull.output1(Right(sections)) >> go(accumulatorByIds - key)(tl)
-        })
+    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]], s: Stream[F, A]): Pull[F, Either[GroupingError, GroupedSections[A]], Unit] = {
+      s.pull.uncons1.flatMap {
+        case Some((section, tl)) =>
+          val key = toKey(section)
+          val (err, acc) = accumulatorByIds.get(key) match {
+            case None => (None, SectionAccumulator(section))
+            case Some(acc) =>
+              acc.add(section) match {
+                case Right(acc) => (None, acc)
+                case Left(err) => (Some(err), SectionAccumulator(section))
+              }
+          }
+          val maybeOutputErr = err.map { e => Pull.output1(Left(GroupingError(section.tableId, section.extension.tableIdExtension, e))) }.getOrElse(Pull.pure(()))
+          maybeOutputErr >> (acc.complete match {
+            case None => go(accumulatorByIds + (key -> acc), tl)
+            case Some(sections) => Pull.output1(Right(sections)) >> go(accumulatorByIds - key, tl)
+          })
+        case None => Pull.done
       }
     }
 
-    _ pull go(Map.empty)
+    in => go(Map.empty, in).stream
   }
 
   def noGrouping[F[_]]: Pipe[F, Section, Either[GroupingError, GroupedSections[Section]]] =
-    pipe.lift(s => Right(GroupedSections(s)))
+    _.map(s => Right(GroupedSections(s)))
 
   /**
    * Groups sections in to groups.
@@ -104,32 +104,33 @@ object GroupedSections {
    */
   def groupGeneralConditionally(nonExtended: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]], groupExtended: ExtendedSection => Boolean = _ => true): Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = {
 
-    type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Handle[Pure, Section]]
+    type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Unit]
 
     def go(
       ext: Option[Chunk[ExtendedSection]] => Stepper[ExtendedSection, Either[GroupingError, GroupedSections[ExtendedSection]]],
-      nonExt: Option[Chunk[Section]] => Stepper[Section, Either[GroupingError, GroupedSections[Section]]]
-    ): Handle[Pure, Section] => ThisPull = h => {
-      h.receive1 { (section, tl) =>
-        section match {
-          case s: ExtendedSection if groupExtended(s) =>
-            ext(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
-              Pull.output(Chunk.indexedSeq(out)) >> go(next, nonExt)(tl)
-            }
-          case s: Section =>
-            nonExt(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
-              Pull.output(Chunk.indexedSeq(out)) >> go(ext, next)(tl)
-            }
-        }
+      nonExt: Option[Chunk[Section]] => Stepper[Section, Either[GroupingError, GroupedSections[Section]]],
+      s: Stream[Pure, Section]
+    ): ThisPull = {
+      s.pull.uncons1.flatMap {
+        case Some((section, tl)) =>
+          section match {
+            case s: ExtendedSection if groupExtended(s) =>
+              ext(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+                Pull.output(out) >> go(next, nonExt, tl)
+              }
+            case s: Section =>
+              nonExt(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
+                Pull.output(out) >> go(ext, next, tl)
+              }
+          }
+        case None => Pull.done
       }
     }
 
-    _ pull { h =>
-      pipe.stepper(groupExtendedSections[Pure, ExtendedSection]).stepToAwait { (out1, ext) =>
-        pipe.stepper(nonExtended).stepToAwait { (out2, nonExt) =>
-          Pull.output(Chunk.indexedSeq(out1 ++ out2)) >> go(ext, nonExt)(h)
-        }
+    in => Pipe.stepper(groupExtendedSections[Pure, ExtendedSection]).stepToAwait { (out1, ext) =>
+      Pipe.stepper(nonExtended).stepToAwait { (out2, nonExt) =>
+        Pull.output(out1 ++ out2) >> go(ext, nonExt, in)
       }
-    }
+    }.stream
   }
 }

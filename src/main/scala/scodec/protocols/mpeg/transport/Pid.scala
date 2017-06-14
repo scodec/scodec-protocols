@@ -7,7 +7,7 @@ import scodec.Codec
 import scodec.codecs.uint
 
 import fs2._
-import fs2.pipe.Stepper
+import fs2.Pipe.Stepper
 
 case class Pid(value: Int) {
   require(value >= Pid.MinValue && value <= Pid.MaxValue)
@@ -31,20 +31,23 @@ object PidStamped {
    * pidstamps are preserved on elements that flow through the process.
    */
   def preservePidStamps[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, PidStamped[A], PidStamped[B]] = {
-    def go(pid: Option[Pid], stepper: Stepper[A, B]): Handle[Pure, PidStamped[A]] => Pull[Pure, PidStamped[B], Handle[Pure, PidStamped[A]]] = { h =>
+    def go(pid: Option[Pid], stepper: Stepper[A, B], s: Stream[Pure, PidStamped[A]]): Pull[Pure, PidStamped[B], Unit] = {
       stepper.step match {
         case Stepper.Done => Pull.done
         case Stepper.Fail(err) => Pull.fail(err)
-        case Stepper.Emits(chunk, next) =>
+        case Stepper.Emits(segment, next) =>
           pid match {
-            case Some(p) => Pull.output(chunk.map { b => PidStamped(p, b) }) >> go(pid, next)(h)
-            case None => go(pid, next)(h)
+            case Some(p) => Pull.output(segment.map { b => PidStamped(p, b) }) >> go(pid, next, s)
+            case None => go(pid, next, s)
           }
         case Stepper.Await(receive) =>
-          h.receive1 { (psa, tl) => go(Some(psa.pid), receive(Some(Chunk.singleton(psa.value))))(tl) }
+          s.pull.uncons1.flatMap {
+            case Some((psa, tl)) => go(Some(psa.pid), receive(Some(Chunk.singleton(psa.value))), tl)
+            case None => Pull.done
+          }
       }
     }
 
-    _ pull go(None, pipe.stepper(p))
+    in => go(None, Pipe.stepper(p), in).stream
   }
 }

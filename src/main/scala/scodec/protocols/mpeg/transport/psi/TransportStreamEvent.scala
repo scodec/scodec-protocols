@@ -4,7 +4,7 @@ package transport
 package psi
 
 import fs2._
-import fs2.pipe.Stepper
+import fs2.Pipe.Stepper
 
 import scodec.bits.BitVector
 
@@ -43,50 +43,49 @@ object TransportStreamEvent {
       def newSectionsToTablesForPid: Option[Chunk[In]] => Stepper[In, Out] = {
         val transducer: Pipe[Pure, In, Out] = PidStamped.preservePidStamps(joinErrors(group) andThen joinErrors(tableBuilder.sectionsToTables))
         // Safe to cast the step here because the various components that make up the transducer won't fail, end, or output until they receive a value
-        pipe.stepper(transducer).step.asInstanceOf[Stepper.Await[In, Out]].receive
+        Pipe.stepper(transducer).step.asInstanceOf[Stepper.Await[In, Out]].receive
       }
 
-      type ThisHandle = Handle[Pure, In]
-      type ThisPull = Pull[Pure, Out, ThisHandle]
+      type ThisPull = Pull[Pure, Out, Unit]
 
-      def gather(s: Stepper[In, Out], acc: Vector[Out]): Either[Throwable, Vector[Out]] = s.step match {
+      def gather(s: Stepper[In, Out], acc: Segment[Out, Unit]): Either[Throwable, Segment[Out, Unit]] = s.step match {
         case Stepper.Done => Right(acc)
         case Stepper.Fail(err) => Left(err)
-        case Stepper.Emits(out, next) => gather(next, acc ++ out.toVector)
+        case Stepper.Emits(out, next) => gather(next, acc ++ out)
         case Stepper.Await(receive) => Right(acc)
       }
 
-      def go(state: Map[Pid, Option[Chunk[In]] => Stepper[In, Out]]): ThisHandle => ThisPull = h => {
-        h.await1Option.flatMap {
+      def go(state: Map[Pid, Option[Chunk[In]] => Stepper[In, Out]]): Stream[Pure, In] => ThisPull = s => {
+        s.pull.uncons1.flatMap {
           case None =>
-            val allOut = state.values.foldLeft(Right(Vector.empty): Either[Throwable, Vector[Out]]) { (accEither, await) =>
+            val allOut = state.values.foldLeft(Right(Segment.empty[Out]): Either[Throwable, Segment[Out, Unit]]) { (accEither, await) =>
               accEither.right.flatMap { acc =>
-                gather(await(None), Vector.empty).right.map { out => acc ++ out }
+                gather(await(None), Segment.empty[Out]).right.map { out => acc ++ out }
               }
             }
             (allOut match {
               case Left(err) => Pull.fail(err)
-              case Right(out) => Pull.output(Chunk.indexedSeq(out))
-            }) >> Pull.done
+              case Right(out) => Pull.output(out)
+            })
 
           case Some((event, tl)) =>
             val await = state.getOrElse(event.pid, newSectionsToTablesForPid)
             await(Some(Chunk.singleton(event))).stepToAwait { (out, nextAwait) =>
-              Pull.output(Chunk.indexedSeq(out)) >> go(state + (event.pid -> nextAwait))(tl)
+              Pull.output(out) >> go(state + (event.pid -> nextAwait))(tl)
             }
         }
       }
 
-      _ pull go(Map.empty)
+      in => go(Map.empty)(in).stream
     }
 
-    sectionsToTables andThen PidStamped.preservePidStamps(passErrors(TransportStreamIndex.build)) andThen pipe.lift {
+    sectionsToTables andThen PidStamped.preservePidStamps(passErrors(TransportStreamIndex.build)) andThen (_.map {
       case PidStamped(pid, value) => value match {
         case Left(e) => error(pid, e)
         case Right(Left(tsi)) => metadata(tsi)
         case Right(Right(tbl)) => table(pid, tbl)
       }
-    }
+    })
   }
 
   def fromPacketStream(
@@ -124,6 +123,6 @@ object TransportStreamEvent {
     tableBuilder: TableBuilder,
     group: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = GroupedSections.group
   ): Pipe[Pure, PidStamped[Section], TransportStreamEvent] = {
-    pipe.lift((p: PidStamped[Section]) => p map Right[MpegError, Section]) andThen sectionsToTables(group, tableBuilder)
+    _.map(_.map(Right[MpegError, Section](_))) through sectionsToTables(group, tableBuilder)
   }
 }
