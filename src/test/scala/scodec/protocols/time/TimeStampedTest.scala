@@ -117,7 +117,7 @@ class TimeStampedTest extends ProtocolsSpec {
     }
 
     "support throttling a time stamped source" in {
-      val executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+      val executor = java.util.concurrent.Executors.newScheduledThreadPool(4)
       try {
         implicit val ec: ExecutionContext = ExecutionContext.fromExecutorService(executor)
         implicit val scheduler: Scheduler = Scheduler.fromScheduledExecutorService(executor)
