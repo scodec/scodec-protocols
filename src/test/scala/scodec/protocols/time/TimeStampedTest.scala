@@ -3,7 +3,7 @@ package time
 
 import language.implicitConversions
 
-import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 import java.time.Instant
@@ -119,6 +119,7 @@ class TimeStampedTest extends ProtocolsSpec {
     "support throttling a time stamped source" in {
       val executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
       try {
+        implicit val ec: ExecutionContext = ExecutionContext.fromExecutorService(executor)
         implicit val scheduler: Scheduler = Scheduler.fromScheduledExecutorService(executor)
         def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), value.toLong)
         val source = Stream(ts(0), ts(1), ts(2), ts(3), ts(4)).covary[IO]
