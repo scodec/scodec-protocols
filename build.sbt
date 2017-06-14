@@ -30,3 +30,4 @@ OsgiKeys.importPackage := Seq(
   "*"
 )
 
+parallelExecution in Test := false
