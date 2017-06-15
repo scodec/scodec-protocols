@@ -184,8 +184,11 @@ object TimeStamped {
       }
 
       def awaitTick(upto: Instant, pending: Chunk[TimeStamped[A]]): PullFromSourceOrTicks = { (src, ticks) =>
+        println("awaiting tick")
+        val st = System.currentTimeMillis
         ticks.pull.uncons1.flatMap {
           case Some((tick, tl)) =>
+          println("got it after " + (System.currentTimeMillis - st))
             val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
             val (toOutput, stillPending) = takeUpto(pending, newUpto)
             if (stillPending.isEmpty) {
