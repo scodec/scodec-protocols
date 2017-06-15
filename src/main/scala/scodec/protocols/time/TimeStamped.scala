@@ -171,7 +171,6 @@ object TimeStamped {
       }
 
       def read(upto: Instant): PullFromSourceOrTicks = { (src, ticks) =>
-        println(s"${System.currentTimeMillis} reading up to $upto")
         src.pull.unconsChunk.flatMap {
           case Some((chunk, tl)) =>
             if (chunk.isEmpty) read(upto)(tl, ticks)
@@ -180,14 +179,11 @@ object TimeStamped {
               if (pending.isEmpty) Pull.output(toOutput) >> read(upto)(tl, ticks)
               else Pull.output(toOutput) >> awaitTick(upto, pending)(tl, ticks)
             }
-          case None =>
-            println(s"${System.currentTimeMillis} done/read")
-            Pull.done
+          case None => Pull.done
         }
       }
 
       def awaitTick(upto: Instant, pending: Chunk[TimeStamped[A]]): PullFromSourceOrTicks = { (src, ticks) =>
-        println(s"${System.currentTimeMillis} awaiting tick up to $upto")
         ticks.pull.uncons1.flatMap {
           case Some((tick, tl)) =>
             val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
@@ -197,16 +193,14 @@ object TimeStamped {
             } else {
               Pull.output(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
             }
-          case None =>
-            println(s"${System.currentTimeMillis} done/awaitTick")
-            Pull.done
+          case None => Pull.done
         }
       }
 
-      (src, ticks) => { println(s"${System.currentTimeMillis} starting"); src.pull.uncons1.flatMap {
+      (src, ticks) => src.pull.uncons1.flatMap {
         case Some((tsa, tl)) => Pull.output1(tsa) >> read(tsa.time)(tl, ticks)
         case None => Pull.done
-      }.stream }
+      }.stream
     }
 
     (source through2 time.awakeEvery[F](tickResolution).as(()))(doThrottle)

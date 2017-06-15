@@ -128,10 +128,10 @@ class TimeStampedTest extends ProtocolsSpec {
           val _ = f
           System.nanoTime - start
         }
-        val x = time(TimeStamped.throttle(source, 1.0).run.unsafeRunSync)
-        println(x)
-        x shouldBe 4.seconds.toNanos +- 250.millis.toNanos
-        time(TimeStamped.throttle(source, 2.0).run.unsafeRunSync) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
+        val realtime = TimeStamped.throttle(source, 1.0).run
+        time(realtime.unsafeRunTimed(5.seconds)) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
+        val doubletime = TimeStamped.throttle(source, 2.0).run
+        time(doubletime.unsafeRunTimed(3.seconds)) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
       } finally {
         executor.shutdown()
       }
