@@ -19,18 +19,6 @@ object pipes { outer =>
   def conditionallyFeed[A, B, X](p: Pipe[Pure, A, B], f: X => Either[A, B]): Pipe[Pure, X, B] =
     in => liftL(p)(in.map(f)).map(_.fold(identity,identity))
 
-  private def characteristicPrefix[O,R,K](segment: Segment[O,R])(f: O => K): Either[(R,Catenable[Segment[O,Unit]]),(Catenable[Segment[O,Unit]],Segment[O,R])] = {
-    val s = segment.map { o => o -> f(o) }
-    s.drop(1) match {
-      case Left((r,_)) => Left(r -> Catenable.singleton(segment.voidResult))
-      case Right(tail) =>
-        s.zipWith(tail) { (_,_) }.mapResult(_.fold(_._1,_._1)).splitWhile({ case ((_, currentK), (_, nextK)) => currentK == nextK }, true) match {
-          case Left((r,prefix)) => Left((r,prefix.map(_.map(_._1._1))))
-          case Right((prefix,suffix)) => Right((prefix.map(_.map(_._1._1)), suffix.map(_._1._1)))
-        }
-    }
-  }
-
   def liftL[A, B, C](p: Pipe[Pure, A, B]): Pipe[Pure, Either[A, C], Either[B, C]] = {
     def go(stepper: Stepper[A, B], s: Stream[Pure, Either[A, C]]): Pull[Pure, Either[B, C], Unit] = {
       stepper.step match {

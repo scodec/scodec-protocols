@@ -41,6 +41,6 @@ object GlobalHeader {
     ("thiszone"      | gint32          ) ::
     ("sigfigs"       | guint32         ) ::
     ("snaplen"       | guint32         ) ::
-    ("network"       | Codec[LinkType] )
+    ("network"       | LinkType.codec  )
   }}.as[GlobalHeader]
 }

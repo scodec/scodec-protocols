@@ -138,7 +138,6 @@ class TimeStampedTest extends ProtocolsSpec {
     }
 
     "support lifting a Pipe[Pure, TimeStamped[A], TimeStamped[B]] in to a Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]]" in {
-      def ts(value: Int) = TimeStamped(Instant.ofEpochMilli(value.toLong), value.toLong)
       val source = Stream(
         TimeStamped(Instant.ofEpochMilli(1), Left(1)),
         TimeStamped(Instant.ofEpochMilli(2), Right(2)),

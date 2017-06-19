@@ -144,7 +144,7 @@ object PesPacketHeader {
 
   implicit val codec: Codec[PesPacketHeader] = {
     constant(bin"10") :~>:
-    ("pes_scrambling_control"                  | Codec[PesScramblingControl]  ) ::
+    ("pes_scrambling_control"                  | PesScramblingControl.codec   ) ::
     ("pes_priority"                            | bool                         ) ::
     ("data_alignment_indicator"                | bool                         ) ::
     ("copyright"                               | bool                         ) ::

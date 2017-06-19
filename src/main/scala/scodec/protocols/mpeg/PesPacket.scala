@@ -1,7 +1,7 @@
 package scodec.protocols.mpeg
 
 import scodec.bits._
-import scodec.{ Attempt, Codec, Decoder, DecodeResult, Err }
+import scodec.{ Attempt, Decoder, DecodeResult, Err }
 
 trait PesPacket
 
@@ -25,7 +25,7 @@ object PesPacket {
         id != ProgramStreamDirectory &&
         id != DSMCC &&
         id != `ITU-T Rec. H.222.1 type E`) {
-      Codec[PesPacketHeader].decode(buffer) match {
+      PesPacketHeader.codec.decode(buffer) match {
         case Attempt.Successful(DecodeResult(header, rest)) =>
           decodeWithHeader(prefix, header, rest)
         case f @ Attempt.Failure(_) => f

@@ -28,7 +28,7 @@ object TimeSeries {
     apply(source map TimeStamped.now, tickPeriod, reorderOver)
 
   /** Stream of time ticks spaced by `tickPeriod`. */
-  private def timeTicks[F[_]](tickPeriod: FiniteDuration = 1.second)(implicit F: Effect[F], ec: ExecutionContext, scheduler: Scheduler): Stream[F, TimeStamped[Unit]] =
+  private def timeTicks[F[_]](tickPeriod: FiniteDuration)(implicit F: Effect[F], ec: ExecutionContext, scheduler: Scheduler): Stream[F, TimeStamped[Unit]] =
     time.awakeEvery[F](tickPeriod) map { _ => TimeStamped.now(()) }
 
   /**
