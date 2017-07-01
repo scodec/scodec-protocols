@@ -3,9 +3,6 @@ package mpeg
 package transport
 package psi
 
-import language.higherKinds
-
-import fs2._
 import shapeless.Typeable
 
 case class TableBuildingError(tableId: Int, message: String) extends MpegError
@@ -17,23 +14,15 @@ class TableBuilder private (cases: Map[Int, List[TableSupport[_]]]) {
     new TableBuilder(cases + (ts.tableId -> newCases))
   }
 
-  def sectionsToTables[F[_]]: Pipe[F, GroupedSections[Section], Either[TableBuildingError, Table]] = {
-    def go(s: Stream[F, GroupedSections[Section]]): Pull[F, Either[TableBuildingError, Table], Unit] = {
-      s.pull.uncons1.flatMap {
-        case Some((gs, tl)) =>
-          cases.get(gs.tableId) match {
-            case None | Some(Nil) =>
-              Pull.output1(Left(TableBuildingError(gs.tableId, "Unknown table id"))) >> go(tl)
-            case Some(list) =>
-              list.dropRight(1).foldRight[Either[String, _]](list.last.toTable(gs)) { (next, res) => res.fold(_ => next.toTable(gs), Right(_)) } match {
-                case Right(table) => Pull.output1(Right(table.asInstanceOf[Table])) >> go(tl)
-                case Left(err) => Pull.output1(Left(TableBuildingError(gs.tableId, err))) >> go(tl)
-              }
-            }
-        case None => Pull.done
-      }
+  def build(gs: GroupedSections[Section]): Either[TableBuildingError, Table] = {
+    cases.get(gs.tableId) match {
+      case None | Some(Nil) => Left(TableBuildingError(gs.tableId, "Unknown table id"))
+      case Some(list) =>
+        list.dropRight(1).foldRight[Either[String, _]](list.last.toTable(gs)) { (next, res) => res.fold(_ => next.toTable(gs), Right(_)) } match {
+          case Right(table) => Right(table.asInstanceOf[Table])
+          case Left(err) => Left(TableBuildingError(gs.tableId, err))
+        }
     }
-    in => go(in).stream
   }
 }
 

@@ -11,7 +11,6 @@ import scala.concurrent.duration._
 import cats.effect.Effect
 
 import fs2._
-import fs2.Pipe.Stepper
 
 /** Companion for [[TimeSeries]]. */
 object TimeSeries {
@@ -68,53 +67,18 @@ object TimeSeries {
   }
 
   /**
-   * Combinator that converts a `Pipe[Pure, A, B]` in to a `TimeSeriesTransducer[Pure, A, B]` such that
+   * Combinator that converts a `Transform[S, I, O]` in to a `Transform[S, TimeSeriesValue[I], TimeSeriesValue[O]]` such that
    * timestamps are preserved on elements that flow through the stream.
    */
-  def preserve[A, B](p: Pipe[Pure, A, B]): TimeSeriesTransducer[Pure, A, B] = {
-    def go(stepper: Stepper[A, B], s: Stream[Pure, Option[A]]): Pull[Pure, Option[B], Unit] = {
-      stepper.step match {
-        case Stepper.Done => Pull.done
-        case Stepper.Fail(err) => Pull.fail(err)
-        case Stepper.Emits(segment, next) =>
-          Pull.output(segment.map(Some(_))) >> go(next, s)
-        case Stepper.Await(receive) =>
-          s.pull.uncons1.flatMap {
-            case Some((hd, tl)) =>
-              hd match {
-                case None =>
-                  Pull.output1(None) >> go(stepper, tl)
-                case Some(a) =>
-                  go(receive(Some(Chunk.singleton(a))), tl)
-              }
-            case None => Pull.done
-          }
-      }
-    }
-    TimeStamped.preserveTimeStamps(in => go(Pipe.stepper(p), in).stream)
-  }
+  def preserve[S, I, O](t: Transform[S, I, O]): Transform[S, TimeSeriesValue[I], TimeSeriesValue[O]] =
+    preserveTicks(TimeStamped.preserve(t))
 
   /**
-   * Combinator that converts a `Pipe[Pure, TimeStamped[A], TimeStamped[B]]` in to a `TimesSeriesTransducer[Pure, A, B]` such that
+   * Combinator that converts a `Transform[S, TimeStamped[A], TimeStamped[B]]` in to a `Transform[S, TimeSeriesValue[A], TimeSeriesValue[B]]` such that
    * timestamps are preserved on elements that flow through the stream.
    */
-  def preserveTicks[A, B](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): TimeSeriesTransducer[Pure, A, B] = {
-    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]], s: Stream[Pure, TimeSeriesValue[A]]): Pull[Pure, TimeSeriesValue[B], Unit] = {
-      stepper.step match {
-        case Stepper.Done => Pull.done
-        case Stepper.Fail(err) => Pull.fail(err)
-        case Stepper.Emits(segment, next) =>
-          Pull.output(segment.map { tsb => tsb.map(Some.apply) }) >> go(next, s)
-        case Stepper.Await(receive) =>
-          s.pull.uncons1.flatMap {
-            case Some(((tick @ TimeStamped(_, None)), tl)) =>
-              Pull.output1(tick.asInstanceOf[TimeSeriesValue[B]]) >> go(stepper, tl)
-            case Some((TimeStamped(ts, Some(v)), tl)) =>
-              go(receive(Some(Chunk.singleton(TimeStamped(ts, v)))), tl)
-            case None => Pull.done
-          }
-      }
-    }
-    in => go(Pipe.stepper(p), in).stream
-  }
+  def preserveTicks[S, I, O](t: Transform[S, TimeStamped[I], TimeStamped[O]]): Transform[S, TimeSeriesValue[I], TimeSeriesValue[O]] =
+    t.semilens(
+      tsi => tsi.value.map(v => Right(TimeStamped(tsi.time, v))).getOrElse(Left(TimeSeriesValue.tick(tsi.time))),
+      (_, tso) => tso.map(Some(_)))
 }

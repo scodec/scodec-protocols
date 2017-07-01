@@ -1,7 +1,6 @@
-package scodec.protocols.mpeg
+package scodec.protocols
+package mpeg
 package transport
-
-import language.higherKinds
 
 import scodec.Codec
 import scodec.bits.BitVector
@@ -105,23 +104,19 @@ object Packet {
       ("payload"           | conditional(hdr.payloadIncluded, bits)                    )
     }).as[Packet]
 
-  def validateContinuity[F[_]]: Pipe[F, Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] = {
-    def go(state: Map[Pid, ContinuityCounter], s: Stream[F, Packet]): Pull[F, Either[PidStamped[DemultiplexerError.Discontinuity], Packet], Unit] = {
-      s.pull.uncons1.flatMap {
-        case Some((packet, tl)) =>
-          val pid = packet.header.pid
-          val currentContinuityCounter = packet.header.continuityCounter
-          state.get(pid).map { lastContinuityCounter =>
-            if (lastContinuityCounter.next == currentContinuityCounter) {
-              Pull.pure(())
-            } else {
-              val err: Either[PidStamped[DemultiplexerError.Discontinuity], Packet] = Left(PidStamped(pid, DemultiplexerError.Discontinuity(lastContinuityCounter, currentContinuityCounter)))
-              Pull.output1(err)
-            }
-          }.getOrElse(Pull.pure(())) >> Pull.output1(Right(packet)) >> go(state + (pid -> currentContinuityCounter), tl)
-        case None => Pull.done
-      }
+  def validateContinuity: Transform[Map[Pid, ContinuityCounter], Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] =
+    Transform.stateful[Map[Pid, ContinuityCounter], Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]](Map.empty) { (state, packet) =>
+      val pid = packet.header.pid
+      val currentContinuityCounter = packet.header.continuityCounter
+      val err = state.get(pid).map { lastContinuityCounter =>
+        if (lastContinuityCounter.next == currentContinuityCounter) {
+          None
+        } else {
+          val err: Either[PidStamped[DemultiplexerError.Discontinuity], Packet] = Left(PidStamped(pid, DemultiplexerError.Discontinuity(lastContinuityCounter, currentContinuityCounter)))
+          Some(err)
+        }
+      }.getOrElse(None)
+      val out = err.map { e => Chunk(e, Right(packet)) }.getOrElse(Chunk.singleton(Right(packet)))
+      (state + (pid -> currentContinuityCounter), out)
     }
-    in => go(Map.empty, in).stream
-  }
 }

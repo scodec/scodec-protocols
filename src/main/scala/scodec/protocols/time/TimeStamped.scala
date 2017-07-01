@@ -9,7 +9,6 @@ import scala.concurrent.duration._
 import cats.effect.Effect
 
 import fs2._
-import fs2.Pipe.Stepper
 
 import java.time.Instant
 
@@ -39,29 +38,11 @@ object TimeStamped {
   }
 
   /**
-   * Combinator that converts a `Pipe[Pure, A, B]` in to a `Pipe[Pure, TimeStamped[A], TimeStamped[B]]` such that
+   * Combinator that converts a `Transform[S, A, B]` in to a `Transform[S, TimeStamped[A], TimeStamped[B]]` such that
    * timestamps are preserved on elements that flow through the stream.
    */
-  def preserveTimeStamps[A, B](p: Pipe[Pure, A, B]): Pipe[Pure, TimeStamped[A], TimeStamped[B]] = {
-    def go(time: Option[Instant], stepper: Stepper[A, B], s: Stream[Pure, TimeStamped[A]]): Pull[Pure, TimeStamped[B], Unit] = {
-      stepper.step match {
-        case Stepper.Done => Pull.done
-        case Stepper.Fail(err) => Pull.fail(err)
-        case Stepper.Emits(segment, next) =>
-          time match {
-            case Some(ts) => Pull.output(segment.map { b => TimeStamped(ts, b) }) >> go(time, next, s)
-            case None => go(time, next, s)
-          }
-        case Stepper.Await(receive) =>
-          s.pull.uncons1.flatMap {
-            case Some((tsa, tl)) => go(Some(tsa.time), receive(Some(Chunk.singleton(tsa.value))), tl)
-            case None => Pull.done
-          }
-      }
-    }
-
-    in => go(None, Pipe.stepper(p), in).stream
-  }
+  def preserve[S, I, O](t: Transform[S, I, O]): Transform[S, TimeStamped[I], TimeStamped[O]] =
+    t.lens(_.value, (tsi, o) => tsi.copy(value = o))
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
@@ -297,50 +278,15 @@ object TimeStamped {
     in => go(SortedMap.empty, in).stream
   }
 
-  def liftL[A, B, C](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]] = {
-    def go(stepper: Stepper[TimeStamped[A], TimeStamped[B]], s: Stream[Pure, TimeStamped[Either[A, C]]]): Pull[Pure, TimeStamped[Either[B, C]], Unit] = {
-      stepper.step match {
-        case Stepper.Done => Pull.done
-        case Stepper.Fail(err) => Pull.fail(err)
-        case Stepper.Emits(chunk, next) =>
-          Pull.output(chunk.map { tsb => tsb.map { b => Left(b): Either[B, C] }}) >> go(next, s)
-        case Stepper.Await(receive) =>
-          s.pull.unconsChunk.flatMap {
-            case Some((hd, tl)) =>
-              hd.uncons1 match {
-                case Left(_) =>
-                  go(stepper, tl)
-                case Right((head @ TimeStamped(time, Right(c)), tail)) =>
-                  val numHeadRights = {
-                    val indexOfFirstLeft = tail.toChunk.indexWhere(_.value.isLeft)
-                    indexOfFirstLeft match {
-                      case None => hd.size
-                      case Some(idx) => 1 + idx
-                    }
-                  }
-                  val (toOutput, suffix) = hd.strict.splitAt(numHeadRights)
-                  Pull.output(toOutput.asInstanceOf[Chunk[TimeStamped[Either[B, C]]]]) >> go(stepper, if (suffix.isEmpty) tl else tl.cons(suffix))
-                case Right((TimeStamped(time, Left(a)), tail)) =>
-                  val numHeadLefts = {
-                    val indexOfFirstRight = tail.toChunk.indexWhere(_.value.isRight)
-                    indexOfFirstRight match {
-                      case None => hd.size
-                      case Some(idx) => 1 + idx
-                    }
-                  }
-                  val (prefix, suffix) = hd.strict.splitAt(numHeadLefts)
-                  val toFeed = prefix.map { _.map { case Left(a) => a; case Right(_) => sys.error("Chunk is all lefts!") } }
-                  go(receive(Some(toFeed)), if (suffix.isEmpty) tl else tl.cons(suffix))
-              }
-            case None => Pull.done
-          }
-      }
-    }
-    in => go(Pipe.stepper(p), in).stream
-  }
+  def left[S,I,O,A](t: Transform[S, TimeStamped[I], TimeStamped[O]]): Transform[S, TimeStamped[Either[I,A]], TimeStamped[Either[O,A]]] =
+    t.semilens({
+      case TimeStamped(t, Left(i)) => Right(TimeStamped(t, i))
+      case TimeStamped(t, Right(a)) => Left(TimeStamped(t, Right(a)))
+    }, (tse, tso) => tso.map(Left(_)))
 
-  def liftR[A, B, C](p: Pipe[Pure, TimeStamped[A], TimeStamped[B]]): Pipe[Pure, TimeStamped[Either[C, A]], TimeStamped[Either[C, B]]] = {
-    def swap[X, Y]: Pipe[Pure, TimeStamped[Either[X, Y]], TimeStamped[Either[Y, X]]] = _.map(_.map(_.swap))
-    swap[C, A].andThen(liftL(p)).andThen(swap[B, C])
-  }
+  def right[S,I,O,A](t: Transform[S, TimeStamped[I], TimeStamped[O]]): Transform[S, TimeStamped[Either[A,I]], TimeStamped[Either[A,O]]] =
+    t.semilens({
+      case TimeStamped(t, Right(i)) => Right(TimeStamped(t, i))
+      case TimeStamped(t, Left(a)) => Left(TimeStamped(t, Left(a)))
+    }, (tse, tso) => tso.map(Right(_)))
 }

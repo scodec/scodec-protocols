@@ -3,14 +3,9 @@ package mpeg
 package transport
 package psi
 
-import fs2._
-import fs2.Pipe.Stepper
-
 import scodec.bits.BitVector
 
 import psi.{ Table => TableMessage }
-
-import pipes._
 
 abstract class TransportStreamEvent
 
@@ -29,100 +24,63 @@ object TransportStreamEvent {
   def error(pid: Pid, e: MpegError): TransportStreamEvent = Error(Some(pid), e)
   def error(pid: Option[Pid], e: MpegError): TransportStreamEvent = Error(pid, e)
 
-  private def sectionsToTables(
-    group: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]], tableBuilder: TableBuilder
-  ): Pipe[Pure, PidStamped[Either[MpegError, Section]], TransportStreamEvent] = {
+  private def sectionsToTables[GroupingState](
+    group: Transform[GroupingState, Section, Either[GroupingError, GroupedSections[Section]]], tableBuilder: TableBuilder
+  ): Transform[(Map[Pid, GroupingState], TransportStreamIndex), PidStamped[Either[MpegError, Section]], TransportStreamEvent] = {
 
     import MpegError._
 
-    type In = PidStamped[Either[MpegError, Section]]
-    type Out = PidStamped[Either[MpegError, TableMessage]]
-    type SectionsToTables = Pipe[Pure, In, Out]
-
-    val sectionsToTables: SectionsToTables = {
-      def newSectionsToTablesForPid: Option[Chunk[In]] => Stepper[In, Out] = {
-        val transducer: Pipe[Pure, In, Out] = PidStamped.preservePidStamps(joinErrors(group) andThen joinErrors(tableBuilder.sectionsToTables))
-        // Safe to cast the step here because the various components that make up the transducer won't fail, end, or output until they receive a value
-        Pipe.stepper(transducer).step.asInstanceOf[Stepper.Await[In, Out]].receive
+    val sectionsToTablesForPid: Transform[GroupingState, Section, Either[MpegError, TableMessage]] =
+      group.map {
+        case Left(e) => Left(e)
+        case Right(gs) => tableBuilder.build(gs)
       }
 
-      type ThisPull = Pull[Pure, Out, Unit]
-
-      def gather(s: Stepper[In, Out], acc: Segment[Out, Unit]): Either[Throwable, Segment[Out, Unit]] = s.step match {
-        case Stepper.Done => Right(acc)
-        case Stepper.Fail(err) => Left(err)
-        case Stepper.Emits(out, next) => gather(next, acc ++ out)
-        case Stepper.Await(receive) => Right(acc)
-      }
-
-      def go(state: Map[Pid, Option[Chunk[In]] => Stepper[In, Out]]): Stream[Pure, In] => ThisPull = s => {
-        s.pull.uncons1.flatMap {
-          case None =>
-            val allOut = state.values.foldLeft(Right(Segment.empty[Out]): Either[Throwable, Segment[Out, Unit]]) { (accEither, await) =>
-              accEither.right.flatMap { acc =>
-                gather(await(None), Segment.empty[Out]).right.map { out => acc ++ out }
-              }
-            }
-            (allOut match {
-              case Left(err) => Pull.fail(err)
-              case Right(out) => Pull.output(out)
-            })
-
-          case Some((event, tl)) =>
-            val await = state.getOrElse(event.pid, newSectionsToTablesForPid)
-            await(Some(Chunk.singleton(event))).stepToAwait { (out, nextAwait) =>
-              Pull.output(out) >> go(state + (event.pid -> nextAwait))(tl)
-            }
-        }
-      }
-
-      in => go(Map.empty)(in).stream
+    val sectionsToTables: Transform[Map[Pid, GroupingState], PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, TableMessage]]] = Transform.stateful(Map.empty[Pid, GroupingState]) {
+      case (state, PidStamped(pid, Right(section))) =>
+        val groupingState = state.getOrElse(pid, group.initial)
+        val (newGroupingState, out) = sectionsToTablesForPid.transform(groupingState, section)
+        (state.updated(pid, newGroupingState), out.strict.map(o => PidStamped(pid, o)))
     }
 
-    sectionsToTables andThen PidStamped.preservePidStamps(passErrors(TransportStreamIndex.build)) andThen (_.map {
-      case PidStamped(pid, value) => value match {
+    val withTransportStreamIndex: Transform[(Map[Pid, GroupingState], TransportStreamIndex), PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, Either[TransportStreamIndex, TableMessage]]]] =
+      sectionsToTables join PidStamped.preserve(passErrors(TransportStreamIndex.build))
+
+    withTransportStreamIndex.map { case PidStamped(pid, value) =>
+      value match {
         case Left(e) => error(pid, e)
         case Right(Left(tsi)) => metadata(tsi)
         case Right(Right(tbl)) => table(pid, tbl)
       }
-    })
+    }
   }
 
-  def fromPacketStream(
+  def fromPacketStream[GroupingState](
     sectionCodec: SectionCodec,
-    tableBuilder: TableBuilder,
-    group: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = GroupedSections.group
-  ): Pipe[Pure, Packet, TransportStreamEvent] = {
-    val demuxed: Pipe[Pure, Packet, TransportStreamEvent] = {
-      val demuxed: Pipe[Pure, Packet, PidStamped[Either[DemultiplexerError, Demultiplexer.Result]]] =
-        Demultiplexer.demultiplex(sectionCodec)
-
-      demuxed andThen pipes.conditionallyFeed[
-        PidStamped[Either[MpegError, Section]],
-        TransportStreamEvent,
-        PidStamped[Either[DemultiplexerError, Demultiplexer.Result]]
-      ](sectionsToTables(group, tableBuilder), {
-        case PidStamped(pid, Right(Demultiplexer.SectionResult(section))) =>
-          Left(PidStamped(pid, Right(section)))
-        case PidStamped(pid, Right(Demultiplexer.PesPacketResult(p))) =>
-          Right(pes(pid, p))
-        case PidStamped(pid, Left(e)) =>
-          Left(PidStamped(pid, Left(e.toMpegError)))
-      })
+    group: Transform[GroupingState, Section, Either[GroupingError, GroupedSections[Section]]],
+    tableBuilder: TableBuilder
+  ): Transform[(Map[Pid, ContinuityCounter], Demultiplexer.State, Map[Pid, GroupingState], TransportStreamIndex), Packet, TransportStreamEvent] = {
+    val demuxed: Transform[(Map[Pid, ContinuityCounter], Demultiplexer.State, Map[Pid, GroupingState], TransportStreamIndex), Packet, TransportStreamEvent] = {
+      Demultiplexer.demultiplex(sectionCodec).join(
+        sectionsToTables(group, tableBuilder).semipass[PidStamped[Either[DemultiplexerError, Demultiplexer.Result]], TransportStreamEvent](
+          {
+            case PidStamped(pid, Right(Demultiplexer.SectionResult(section))) => Right(PidStamped(pid, Right(section)))
+            case PidStamped(pid, Right(Demultiplexer.PesPacketResult(p))) => Left(pes(pid, p))
+            case PidStamped(pid, Left(e)) => Right(PidStamped(pid, Left(e.toMpegError)))
+          })).xmapState(t => (t._1._1, t._1._2, t._2._1, t._2._2))(t => ((t._1, t._2), (t._3, t._4)))
     }
 
-    pipes.conditionallyFeed[Packet, TransportStreamEvent, Packet](demuxed, {
+    demuxed.semipass[Packet, TransportStreamEvent]({
       case Packet(header, _, _, Some(payload)) if header.scramblingControl != 0 =>
-        Right(scrambledPayload(header.pid, payload))
+        Left(scrambledPayload(header.pid, payload))
       case p @ Packet(_, _, _, _) =>
-        Left(p)
+        Right(p)
     })
   }
 
-  def fromSectionStream(
-    tableBuilder: TableBuilder,
-    group: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = GroupedSections.group
-  ): Pipe[Pure, PidStamped[Section], TransportStreamEvent] = {
-    _.map(_.map(Right[MpegError, Section](_))) through sectionsToTables(group, tableBuilder)
-  }
+  def fromSectionStream[GroupingState](
+    group: Transform[GroupingState, Section, Either[GroupingError, GroupedSections[Section]]],
+    tableBuilder: TableBuilder
+  ): Transform[(Map[Pid, GroupingState], TransportStreamIndex), PidStamped[Section], TransportStreamEvent] =
+    sectionsToTables(group, tableBuilder).contramap[PidStamped[Section]](_.map(Right(_)))
 }

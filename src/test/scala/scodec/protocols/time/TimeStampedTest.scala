@@ -137,7 +137,7 @@ class TimeStampedTest extends ProtocolsSpec {
       }
     }
 
-    "support lifting a Pipe[Pure, TimeStamped[A], TimeStamped[B]] in to a Pipe[Pure, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]]" in {
+    "support lifting a Transform[S, TimeStamped[A], TimeStamped[B]] in to a Transform[S, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]]" in {
       val source = Stream(
         TimeStamped(Instant.ofEpochMilli(1), Left(1)),
         TimeStamped(Instant.ofEpochMilli(2), Right(2)),
@@ -146,8 +146,8 @@ class TimeStampedTest extends ProtocolsSpec {
         TimeStamped(Instant.ofEpochMilli(5), Left(5)),
         TimeStamped(Instant.ofEpochMilli(6), Right(6))
       )
-      val square: Pipe[Pure, TimeStamped[Int], TimeStamped[Int]] = _.map(_.map { x => x * x })
-      source.through(TimeStamped.liftL(square)).toVector shouldBe Vector(
+      val square: Transform[Unit, TimeStamped[Int], TimeStamped[Int]] = Transform.lift(_.map { x => x * x })
+      source.through(TimeStamped.left(square).toPipe).toVector shouldBe Vector(
         TimeStamped(Instant.ofEpochMilli(1), Left(1)),
         TimeStamped(Instant.ofEpochMilli(2), Right(2)),
         TimeStamped(Instant.ofEpochMilli(3), Right(3)),

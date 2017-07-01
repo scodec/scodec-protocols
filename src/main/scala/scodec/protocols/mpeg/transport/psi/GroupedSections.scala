@@ -3,14 +3,9 @@ package mpeg
 package transport
 package psi
 
-import language.higherKinds
-
 import scala.reflect.ClassTag
 
 import fs2._
-import fs2.Pipe.Stepper
-
-import pipes._
 
 /**
  * Group of sections that make up a logical message.
@@ -43,36 +38,37 @@ object GroupedSections {
   def apply[A <: Section](head: A, tail: List[A] = Nil): GroupedSections[A] =
     DefaultGroupedSections[A](head, tail)
 
-  def groupExtendedSections[F[_], A <: ExtendedSection]: Pipe[F, A, Either[GroupingError, GroupedSections[A]]] = {
-    type Key = (Int, Int)
-    def toKey(section: A): Key = (section.tableId, section.extension.tableIdExtension)
+  final case class ExtendedTableId(tableId: Int, tableIdExtension: Int)
+  final case class ExtendedSectionGrouperState[A <: ExtendedSection](accumulatorByIds: Map[ExtendedTableId, SectionAccumulator[A]])
 
-    def go(accumulatorByIds: Map[Key, SectionAccumulator[A]], s: Stream[F, A]): Pull[F, Either[GroupingError, GroupedSections[A]], Unit] = {
-      s.pull.uncons1.flatMap {
-        case Some((section, tl)) =>
-          val key = toKey(section)
-          val (err, acc) = accumulatorByIds.get(key) match {
-            case None => (None, SectionAccumulator(section))
-            case Some(acc) =>
-              acc.add(section) match {
-                case Right(acc) => (None, acc)
-                case Left(err) => (Some(err), SectionAccumulator(section))
-              }
+  def groupExtendedSections[A <: ExtendedSection]: Transform[ExtendedSectionGrouperState[A], A, Either[GroupingError, GroupedSections[A]]] = {
+    def toKey(section: A): ExtendedTableId = ExtendedTableId(section.tableId, section.extension.tableIdExtension)
+    Transform.stateful[ExtendedSectionGrouperState[A], A, Either[GroupingError, GroupedSections[A]]](ExtendedSectionGrouperState(Map.empty)) { (state, section) =>
+      val key = toKey(section)
+      val (err, acc) = state.accumulatorByIds.get(key) match {
+        case None => (None, SectionAccumulator(section))
+        case Some(acc) =>
+          acc.add(section) match {
+            case Right(acc) => (None, acc)
+            case Left(err) => (Some(GroupingError(section.tableId, section.extension.tableIdExtension, err)), SectionAccumulator(section))
           }
-          val maybeOutputErr = err.map { e => Pull.output1(Left(GroupingError(section.tableId, section.extension.tableIdExtension, e))) }.getOrElse(Pull.pure(()))
-          maybeOutputErr >> (acc.complete match {
-            case None => go(accumulatorByIds + (key -> acc), tl)
-            case Some(sections) => Pull.output1(Right(sections)) >> go(accumulatorByIds - key, tl)
-          })
-        case None => Pull.done
+      }
+
+      acc.complete match {
+        case None =>
+          val newState = ExtendedSectionGrouperState(state.accumulatorByIds + (key -> acc))
+          val out = err.map(e => Chunk.singleton(Left(e))).getOrElse(Chunk.empty)
+          (newState, out)
+        case Some(sections) =>
+          val newState = ExtendedSectionGrouperState(state.accumulatorByIds - key)
+          val out = Chunk.seq((Right(sections) :: err.map(e => Left(e)).toList).reverse)
+          (newState, out)
       }
     }
-
-    in => go(Map.empty, in).stream
   }
 
-  def noGrouping[F[_]]: Pipe[F, Section, Either[GroupingError, GroupedSections[Section]]] =
-    _.map(s => Right(GroupedSections(s)))
+  def noGrouping: Transform[Unit, Section, Either[GroupingError, GroupedSections[Section]]] =
+    Transform.lift(s => Right(GroupedSections(s)))
 
   /**
    * Groups sections in to groups.
@@ -80,8 +76,8 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled.
    * Non-extended sections are emitted as singleton groups.
    */
-  def group[F[_]]: Pipe[F, Section, Either[GroupingError, GroupedSections[Section]]] = {
-    groupGeneral(noGrouping)
+  def group: Transform[ExtendedSectionGrouperState[ExtendedSection], Section, Either[GroupingError, GroupedSections[Section]]] = {
+    groupGeneral((), noGrouping).xmapState(_._2)(s => ((), s))
   }
 
   /**
@@ -90,8 +86,11 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled.
    * The specified `nonExtended` process is used to handle non-extended sections.
    */
-  def groupGeneral(nonExtended: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]]): Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = {
-    groupGeneralConditionally(nonExtended, _ => true)
+  def groupGeneral[NonExtendedState](
+    initialNonExtendedState: NonExtendedState,
+    nonExtended: Transform[NonExtendedState, Section, Either[GroupingError, GroupedSections[Section]]]
+  ): Transform[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]] = {
+    groupGeneralConditionally(initialNonExtendedState, nonExtended, _ => true)
   }
 
   /**
@@ -102,35 +101,20 @@ object GroupedSections {
    *
    * The specified `nonExtended` transducer is used to handle non-extended sections.
    */
-  def groupGeneralConditionally(nonExtended: Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]], groupExtended: ExtendedSection => Boolean = _ => true): Pipe[Pure, Section, Either[GroupingError, GroupedSections[Section]]] = {
-
-    type ThisPull = Pull[Pure, Either[GroupingError, GroupedSections[Section]], Unit]
-
-    def go(
-      ext: Option[Chunk[ExtendedSection]] => Stepper[ExtendedSection, Either[GroupingError, GroupedSections[ExtendedSection]]],
-      nonExt: Option[Chunk[Section]] => Stepper[Section, Either[GroupingError, GroupedSections[Section]]],
-      s: Stream[Pure, Section]
-    ): ThisPull = {
-      s.pull.uncons1.flatMap {
-        case Some((section, tl)) =>
-          section match {
-            case s: ExtendedSection if groupExtended(s) =>
-              ext(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
-                Pull.output(out) >> go(next, nonExt, tl)
-              }
-            case s: Section =>
-              nonExt(Some(Chunk.singleton(s))).stepToAwait { (out, next) =>
-                Pull.output(out) >> go(ext, next, tl)
-              }
-          }
-        case None => Pull.done
+  def groupGeneralConditionally[NonExtendedState](
+    initialNonExtendedState: NonExtendedState,
+    nonExtended: Transform[NonExtendedState, Section, Either[GroupingError, GroupedSections[Section]]],
+    groupExtended: ExtendedSection => Boolean = _ => true
+  ): Transform[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]] = {
+    Transform.stateful[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]]((initialNonExtendedState, ExtendedSectionGrouperState(Map.empty))) { case ((nonExtendedState, extendedState), section) =>
+      section match {
+        case s: ExtendedSection if groupExtended(s) =>
+          val (newExtendedState, out) = groupExtendedSections.transform(extendedState, s)
+          ((nonExtendedState, newExtendedState), out)
+        case s: Section =>
+          val (newNonExtendedState, out) = nonExtended.transform(nonExtendedState, s)
+          ((newNonExtendedState, extendedState), out)
       }
     }
-
-    in => Pipe.stepper(groupExtendedSections[Pure, ExtendedSection]).stepToAwait { (out1, ext) =>
-      Pipe.stepper(nonExtended).stepToAwait { (out2, nonExt) =>
-        Pull.output(out1 ++ out2) >> go(ext, nonExt, in)
-      }
-    }.stream
   }
 }

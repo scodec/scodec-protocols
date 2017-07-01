@@ -3,8 +3,6 @@ package mpeg
 package transport
 package psi
 
-import language.higherKinds
-
 import fs2._
 
 sealed abstract class TransportStreamIndex {
@@ -66,28 +64,22 @@ object TransportStreamIndex {
 
   def empty: TransportStreamIndex = DefaultTransportStreamIndex(None, None, Map.empty)
 
-  def build[F[_]]: Pipe[F, Table, Either[TransportStreamIndex, Table]] = {
-    def go(tsi: TransportStreamIndex, s: Stream[F, Table]): Pull[F, Either[TransportStreamIndex, Table], Unit] = {
-      s.pull.uncons1.flatMap {
-        case Some((section, tl)) =>
-          val updatedTsi = section match {
-            case pat: ProgramAssociationTable =>
-              Some(tsi.withPat(pat))
-            case pmt: ProgramMapTable =>
-              Some(tsi.withPmt(pmt))
-            case cat: ConditionalAccessTable =>
-              Some(tsi.withCat(cat))
-            case other => None
-          }
-          updatedTsi match {
-            case Some(newTsi) if newTsi != tsi =>
-              Pull.output1(Right(section)) >> Pull.output1(Left(newTsi)) >> go(newTsi, tl)
-            case _ =>
-              Pull.output1(Right(section)) >> go(tsi, tl)
-          }
-        case None => Pull.done
-      }
+  def build: Transform[TransportStreamIndex, Table, Either[TransportStreamIndex, Table]] = Transform.stateful(empty) { (tsi, section) =>
+    val updatedTsi = section match {
+      case pat: ProgramAssociationTable =>
+        Some(tsi.withPat(pat))
+      case pmt: ProgramMapTable =>
+        Some(tsi.withPmt(pmt))
+      case cat: ConditionalAccessTable =>
+        Some(tsi.withCat(cat))
+      case other => None
     }
-    in => go(TransportStreamIndex.empty, in).stream
+    val out = updatedTsi match {
+      case Some(newTsi) if newTsi != tsi =>
+        Chunk(Right(section), Left(newTsi))
+      case _ =>
+        Chunk(Right(section))
+    }
+    (updatedTsi.getOrElse(tsi), out)
   }
 }
