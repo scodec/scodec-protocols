@@ -64,7 +64,7 @@ object TransportStreamIndex {
 
   def empty: TransportStreamIndex = DefaultTransportStreamIndex(None, None, Map.empty)
 
-  def build: Transform[TransportStreamIndex, Table, Either[TransportStreamIndex, Table]] = Transform.stateful(empty) { (tsi, section) =>
+  def build: Transform.Aux[TransportStreamIndex, Table, Either[TransportStreamIndex, Table]] = Transform.stateful(empty) { (tsi, section) =>
     val updatedTsi = section match {
       case pat: ProgramAssociationTable =>
         Some(tsi.withPat(pat))

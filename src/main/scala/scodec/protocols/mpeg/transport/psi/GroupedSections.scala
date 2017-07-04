@@ -41,7 +41,7 @@ object GroupedSections {
   final case class ExtendedTableId(tableId: Int, tableIdExtension: Int)
   final case class ExtendedSectionGrouperState[A <: ExtendedSection](accumulatorByIds: Map[ExtendedTableId, SectionAccumulator[A]])
 
-  def groupExtendedSections[A <: ExtendedSection]: Transform[ExtendedSectionGrouperState[A], A, Either[GroupingError, GroupedSections[A]]] = {
+  def groupExtendedSections[A <: ExtendedSection]: Transform.Aux[ExtendedSectionGrouperState[A], A, Either[GroupingError, GroupedSections[A]]] = {
     def toKey(section: A): ExtendedTableId = ExtendedTableId(section.tableId, section.extension.tableIdExtension)
     Transform.stateful[ExtendedSectionGrouperState[A], A, Either[GroupingError, GroupedSections[A]]](ExtendedSectionGrouperState(Map.empty)) { (state, section) =>
       val key = toKey(section)
@@ -67,7 +67,7 @@ object GroupedSections {
     }
   }
 
-  def noGrouping: Transform[Unit, Section, Either[GroupingError, GroupedSections[Section]]] =
+  def noGrouping: Transform[Section, Either[GroupingError, GroupedSections[Section]]] { type S = Unit } =
     Transform.lift(s => Right(GroupedSections(s)))
 
   /**
@@ -76,7 +76,7 @@ object GroupedSections {
    * Extended sections, aka sections with the section syntax indicator set to true, are automatically handled.
    * Non-extended sections are emitted as singleton groups.
    */
-  def group: Transform[ExtendedSectionGrouperState[ExtendedSection], Section, Either[GroupingError, GroupedSections[Section]]] = {
+  def group: Transform.Aux[ExtendedSectionGrouperState[ExtendedSection], Section, Either[GroupingError, GroupedSections[Section]]] = {
     groupGeneral((), noGrouping).xmapState(_._2)(s => ((), s))
   }
 
@@ -88,8 +88,8 @@ object GroupedSections {
    */
   def groupGeneral[NonExtendedState](
     initialNonExtendedState: NonExtendedState,
-    nonExtended: Transform[NonExtendedState, Section, Either[GroupingError, GroupedSections[Section]]]
-  ): Transform[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]] = {
+    nonExtended: Transform.Aux[NonExtendedState, Section, Either[GroupingError, GroupedSections[Section]]]
+  ): Transform.Aux[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]] = {
     groupGeneralConditionally(initialNonExtendedState, nonExtended, _ => true)
   }
 
@@ -103,9 +103,9 @@ object GroupedSections {
    */
   def groupGeneralConditionally[NonExtendedState](
     initialNonExtendedState: NonExtendedState,
-    nonExtended: Transform[NonExtendedState, Section, Either[GroupingError, GroupedSections[Section]]],
+    nonExtended: Transform.Aux[NonExtendedState, Section, Either[GroupingError, GroupedSections[Section]]],
     groupExtended: ExtendedSection => Boolean = _ => true
-  ): Transform[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]] = {
+  ): Transform.Aux[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]] = {
     Transform.stateful[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]]((initialNonExtendedState, ExtendedSectionGrouperState(Map.empty))) { case ((nonExtendedState, extendedState), section) =>
       section match {
         case s: ExtendedSection if groupExtended(s) =>

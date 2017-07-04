@@ -75,17 +75,17 @@ object Demultiplexer {
    * Upon noticing a PID discontinuity, an error is emitted and PID decoding state is discarded, resulting in any in-progress
    * section decoding to be lost for that PID.
    */
-  def demultiplex[F[_]](sectionCodec: SectionCodec): Transform[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Result]]] =
+  def demultiplex[F[_]](sectionCodec: SectionCodec): Transform.Aux[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Result]]] =
     demultiplexSectionsAndPesPackets(sectionCodec.decoder, pph => Decoder(b => Attempt.successful(DecodeResult(PesPacket.WithoutHeader(pph.streamId, b), BitVector.empty))))
 
   /** Variant of `demultiplex` that parses PES packet headers. */
-  def demultiplexWithPesHeaders[F[_]](sectionCodec: SectionCodec): Transform[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Result]]] =
+  def demultiplexWithPesHeaders[F[_]](sectionCodec: SectionCodec): Transform.Aux[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Result]]] =
     demultiplexSectionsAndPesPackets(sectionCodec.decoder, PesPacket.decoder)
 
   /** Variant of `demultiplex` that allows section and PES decoding to be explicitly specified. */
   def demultiplexSectionsAndPesPackets[F[_]](
     decodeSectionBody: SectionHeader => Decoder[Section],
-    decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Transform[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Result]]] = {
+    decodePesBody: PesPacketHeaderPrefix => Decoder[PesPacket]): Transform.Aux[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Result]]] = {
 
     val stuffingByte = bin"11111111"
 
@@ -131,7 +131,7 @@ object Demultiplexer {
    */
   def demultiplexGeneral[F[_], Out](
     decodeHeader: (BitVector, Boolean) => Attempt[DecodeResult[DecodeBody[Out]]]
-  ): Transform[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Out]]] = {
+  ): Transform.Aux[(Map[Pid, ContinuityCounter], State), Packet, PidStamped[Either[DemultiplexerError, Out]]] = {
 
     def processBody[A](awaitingBody: DecodeState.AwaitingBody[A], payloadUnitStartAfterData: Boolean): StepResult[Out] = {
       val haveFullBody = awaitingBody.neededBits match {

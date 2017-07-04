@@ -24,29 +24,26 @@ object TransportStreamEvent {
   def error(pid: Pid, e: MpegError): TransportStreamEvent = Error(Some(pid), e)
   def error(pid: Option[Pid], e: MpegError): TransportStreamEvent = Error(pid, e)
 
-  private def sectionsToTables[GroupingState](
-    group: Transform[GroupingState, Section, Either[GroupingError, GroupedSections[Section]]], tableBuilder: TableBuilder
-  ): Transform[(Map[Pid, GroupingState], TransportStreamIndex), PidStamped[Either[MpegError, Section]], TransportStreamEvent] = {
+  private def sectionsToTables(
+    group: Transform[Section, Either[GroupingError, GroupedSections[Section]]], tableBuilder: TableBuilder
+  ): Transform[PidStamped[Either[MpegError, Section]], TransportStreamEvent] = {
 
     import MpegError._
 
-    val sectionsToTablesForPid: Transform[GroupingState, Section, Either[MpegError, TableMessage]] =
+    val sectionsToTablesForPid: Transform.Aux[group.S, Section, Either[MpegError, TableMessage]] =
       group.map {
         case Left(e) => Left(e)
         case Right(gs) => tableBuilder.build(gs)
       }
 
-    val sectionsToTables: Transform[Map[Pid, GroupingState], PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, TableMessage]]] =
-      Transform.stateful(Map.empty[Pid, GroupingState]) {
+    val sectionsToTables: Transform.Aux[Map[Pid, group.S], PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, TableMessage]]] =
+      Transform.stateful(Map.empty[Pid, group.S]) {
         case (state, PidStamped(pid, Right(section))) =>
           val groupingState = state.getOrElse(pid, group.initial)
           sectionsToTablesForPid.transform(groupingState, section).map(PidStamped(pid, _)).mapResult(state.updated(pid, _))
       }
 
-    val withTransportStreamIndex: Transform[(Map[Pid, GroupingState], TransportStreamIndex), PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, Either[TransportStreamIndex, TableMessage]]]] =
-      sectionsToTables andThen PidStamped.preserve(passErrors(TransportStreamIndex.build))
-
-    withTransportStreamIndex.map { case PidStamped(pid, value) =>
+    sectionsToTables.andThen(PidStamped.preserve(passErrors(TransportStreamIndex.build))).map { case PidStamped(pid, value) =>
       value match {
         case Left(e) => error(pid, e)
         case Right(Left(tsi)) => metadata(tsi)
@@ -55,21 +52,20 @@ object TransportStreamEvent {
     }
   }
 
-  def fromPacketStream[GroupingState](
+  def fromPacketStream(
     sectionCodec: SectionCodec,
-    group: Transform[GroupingState, Section, Either[GroupingError, GroupedSections[Section]]],
+    group: Transform[Section, Either[GroupingError, GroupedSections[Section]]],
     tableBuilder: TableBuilder
-  ): Transform[(Map[Pid, ContinuityCounter], Demultiplexer.State, Map[Pid, GroupingState], TransportStreamIndex), Packet, TransportStreamEvent] = {
-    val demuxed: Transform[(Map[Pid, ContinuityCounter], Demultiplexer.State, Map[Pid, GroupingState], TransportStreamIndex), Packet, TransportStreamEvent] = {
+  ): Transform[Packet, TransportStreamEvent] = {
+    val demuxed: Transform[Packet, TransportStreamEvent] = {
       Demultiplexer.demultiplex(sectionCodec).andThen(
         sectionsToTables(group, tableBuilder).semipass[PidStamped[Either[DemultiplexerError, Demultiplexer.Result]], TransportStreamEvent](
           {
             case PidStamped(pid, Right(Demultiplexer.SectionResult(section))) => Right(PidStamped(pid, Right(section)))
             case PidStamped(pid, Right(Demultiplexer.PesPacketResult(p))) => Left(pes(pid, p))
             case PidStamped(pid, Left(e)) => Right(PidStamped(pid, Left(e.toMpegError)))
-          })).xmapState(t => (t._1._1, t._1._2, t._2._1, t._2._2))(t => ((t._1, t._2), (t._3, t._4)))
+          }))
     }
-
     demuxed.semipass[Packet, TransportStreamEvent]({
       case Packet(header, _, _, Some(payload)) if header.scramblingControl != 0 =>
         Left(scrambledPayload(header.pid, payload))
@@ -78,9 +74,9 @@ object TransportStreamEvent {
     })
   }
 
-  def fromSectionStream[GroupingState](
-    group: Transform[GroupingState, Section, Either[GroupingError, GroupedSections[Section]]],
+  def fromSectionStream(
+    group: Transform[Section, Either[GroupingError, GroupedSections[Section]]],
     tableBuilder: TableBuilder
-  ): Transform[(Map[Pid, GroupingState], TransportStreamIndex), PidStamped[Section], TransportStreamEvent] =
+  ): Transform[PidStamped[Section], TransportStreamEvent] =
     sectionsToTables(group, tableBuilder).contramap[PidStamped[Section]](_.map(Right(_)))
 }

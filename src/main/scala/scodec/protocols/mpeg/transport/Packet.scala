@@ -104,7 +104,7 @@ object Packet {
       ("payload"           | conditional(hdr.payloadIncluded, bits)                    )
     }).as[Packet]
 
-  def validateContinuity: Transform[Map[Pid, ContinuityCounter], Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] =
+  def validateContinuity: Transform.Aux[Map[Pid, ContinuityCounter], Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]] =
     Transform.stateful[Map[Pid, ContinuityCounter], Packet, Either[PidStamped[DemultiplexerError.Discontinuity], Packet]](Map.empty) { (state, packet) =>
       val pid = packet.header.pid
       val currentContinuityCounter = packet.header.continuityCounter

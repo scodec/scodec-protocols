@@ -67,17 +67,17 @@ object TimeSeries {
   }
 
   /**
-   * Combinator that converts a `Transform[S, I, O]` in to a `Transform[S, TimeSeriesValue[I], TimeSeriesValue[O]]` such that
+   * Combinator that converts a `Transform.Aux[S, I, O]` in to a `Transform.Aux[S, TimeSeriesValue[I], TimeSeriesValue[O]]` such that
    * timestamps are preserved on elements that flow through the stream.
    */
-  def preserve[S, I, O](t: Transform[S, I, O]): Transform[S, TimeSeriesValue[I], TimeSeriesValue[O]] =
+  def preserve[S, I, O](t: Transform.Aux[S, I, O]): Transform.Aux[S, TimeSeriesValue[I], TimeSeriesValue[O]] =
     preserveTicks(TimeStamped.preserve(t))
 
   /**
-   * Combinator that converts a `Transform[S, TimeStamped[A], TimeStamped[B]]` in to a `Transform[S, TimeSeriesValue[A], TimeSeriesValue[B]]` such that
+   * Combinator that converts a `Transform.Aux[S, TimeStamped[A], TimeStamped[B]]` in to a `Transform.Aux[S, TimeSeriesValue[A], TimeSeriesValue[B]]` such that
    * timestamps are preserved on elements that flow through the stream.
    */
-  def preserveTicks[S, I, O](t: Transform[S, TimeStamped[I], TimeStamped[O]]): Transform[S, TimeSeriesValue[I], TimeSeriesValue[O]] =
+  def preserveTicks[S, I, O](t: Transform.Aux[S, TimeStamped[I], TimeStamped[O]]): Transform.Aux[S, TimeSeriesValue[I], TimeSeriesValue[O]] =
     t.semilens(
       tsi => tsi.value.map(v => Right(TimeStamped(tsi.time, v))).getOrElse(Left(TimeSeriesValue.tick(tsi.time))),
       (_, tso) => tso.map(Some(_)))

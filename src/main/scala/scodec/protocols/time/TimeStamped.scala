@@ -38,10 +38,10 @@ object TimeStamped {
   }
 
   /**
-   * Combinator that converts a `Transform[S, A, B]` in to a `Transform[S, TimeStamped[A], TimeStamped[B]]` such that
+   * Combinator that converts a `Transform.Aux[S, A, B]` in to a `Transform.Aux[S, TimeStamped[A], TimeStamped[B]]` such that
    * timestamps are preserved on elements that flow through the stream.
    */
-  def preserve[S, I, O](t: Transform[S, I, O]): Transform[S, TimeStamped[I], TimeStamped[O]] =
+  def preserve[S, I, O](t: Transform.Aux[S, I, O]): Transform.Aux[S, TimeStamped[I], TimeStamped[O]] =
     t.lens(_.value, (tsi, o) => tsi.copy(value = o))
 
   /**
@@ -278,13 +278,13 @@ object TimeStamped {
     in => go(SortedMap.empty, in).stream
   }
 
-  def left[S,I,O,A](t: Transform[S, TimeStamped[I], TimeStamped[O]]): Transform[S, TimeStamped[Either[I,A]], TimeStamped[Either[O,A]]] =
+  def left[S,I,O,A](t: Transform.Aux[S, TimeStamped[I], TimeStamped[O]]): Transform.Aux[S, TimeStamped[Either[I,A]], TimeStamped[Either[O,A]]] =
     t.semilens({
       case TimeStamped(t, Left(i)) => Right(TimeStamped(t, i))
       case TimeStamped(t, Right(a)) => Left(TimeStamped(t, Right(a)))
     }, (tse, tso) => tso.map(Left(_)))
 
-  def right[S,I,O,A](t: Transform[S, TimeStamped[I], TimeStamped[O]]): Transform[S, TimeStamped[Either[A,I]], TimeStamped[Either[A,O]]] =
+  def right[S,I,O,A](t: Transform.Aux[S, TimeStamped[I], TimeStamped[O]]): Transform.Aux[S, TimeStamped[Either[A,I]], TimeStamped[Either[A,O]]] =
     t.semilens({
       case TimeStamped(t, Right(i)) => Right(TimeStamped(t, i))
       case TimeStamped(t, Left(a)) => Left(TimeStamped(t, Left(a)))
