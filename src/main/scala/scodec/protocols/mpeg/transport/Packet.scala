@@ -117,6 +117,6 @@ object Packet {
         }
       }.getOrElse(None)
       val out = err.map { e => Chunk(e, Right(packet)) }.getOrElse(Chunk.singleton(Right(packet)))
-      (state + (pid -> currentContinuityCounter), out)
+      out.asResult(state + (pid -> currentContinuityCounter))
     }
 }

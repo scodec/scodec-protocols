@@ -36,15 +36,15 @@ object TransportStreamEvent {
         case Right(gs) => tableBuilder.build(gs)
       }
 
-    val sectionsToTables: Transform[Map[Pid, GroupingState], PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, TableMessage]]] = Transform.stateful(Map.empty[Pid, GroupingState]) {
-      case (state, PidStamped(pid, Right(section))) =>
-        val groupingState = state.getOrElse(pid, group.initial)
-        val (newGroupingState, out) = sectionsToTablesForPid.transform(groupingState, section)
-        (state.updated(pid, newGroupingState), out.strict.map(o => PidStamped(pid, o)))
-    }
+    val sectionsToTables: Transform[Map[Pid, GroupingState], PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, TableMessage]]] =
+      Transform.stateful(Map.empty[Pid, GroupingState]) {
+        case (state, PidStamped(pid, Right(section))) =>
+          val groupingState = state.getOrElse(pid, group.initial)
+          sectionsToTablesForPid.transform(groupingState, section).map(PidStamped(pid, _)).mapResult(state.updated(pid, _))
+      }
 
     val withTransportStreamIndex: Transform[(Map[Pid, GroupingState], TransportStreamIndex), PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, Either[TransportStreamIndex, TableMessage]]]] =
-      sectionsToTables join PidStamped.preserve(passErrors(TransportStreamIndex.build))
+      sectionsToTables andThen PidStamped.preserve(passErrors(TransportStreamIndex.build))
 
     withTransportStreamIndex.map { case PidStamped(pid, value) =>
       value match {
@@ -61,7 +61,7 @@ object TransportStreamEvent {
     tableBuilder: TableBuilder
   ): Transform[(Map[Pid, ContinuityCounter], Demultiplexer.State, Map[Pid, GroupingState], TransportStreamIndex), Packet, TransportStreamEvent] = {
     val demuxed: Transform[(Map[Pid, ContinuityCounter], Demultiplexer.State, Map[Pid, GroupingState], TransportStreamIndex), Packet, TransportStreamEvent] = {
-      Demultiplexer.demultiplex(sectionCodec).join(
+      Demultiplexer.demultiplex(sectionCodec).andThen(
         sectionsToTables(group, tableBuilder).semipass[PidStamped[Either[DemultiplexerError, Demultiplexer.Result]], TransportStreamEvent](
           {
             case PidStamped(pid, Right(Demultiplexer.SectionResult(section))) => Right(PidStamped(pid, Right(section)))

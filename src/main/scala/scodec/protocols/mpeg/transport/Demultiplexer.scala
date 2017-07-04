@@ -218,11 +218,11 @@ object Demultiplexer {
           val result = handlePacket(oldStateForPid, packet)
           val newState = State(result.state.map { s => state.byPid.updated(pid, s) }.getOrElse(state.byPid - pid))
           val out = result.output.map { e => PidStamped(pid, e) }
-          (newState, out.toChunk)
-        case Left(discontinuity) => (State(state.byPid - discontinuity.pid), Chunk.singleton(PidStamped(discontinuity.pid, Left(discontinuity.value))))
+          out.asResult(newState)
+        case Left(discontinuity) => Chunk.singleton(PidStamped(discontinuity.pid, Left(discontinuity.value))).asResult(State(state.byPid - discontinuity.pid))
       }
     }
 
-    Packet.validateContinuity join demux
+    Packet.validateContinuity andThen demux
   }
 }

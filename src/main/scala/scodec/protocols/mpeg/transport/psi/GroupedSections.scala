@@ -58,11 +58,11 @@ object GroupedSections {
         case None =>
           val newState = ExtendedSectionGrouperState(state.accumulatorByIds + (key -> acc))
           val out = err.map(e => Chunk.singleton(Left(e))).getOrElse(Chunk.empty)
-          (newState, out)
+          out.asResult(newState)
         case Some(sections) =>
           val newState = ExtendedSectionGrouperState(state.accumulatorByIds - key)
           val out = Chunk.seq((Right(sections) :: err.map(e => Left(e)).toList).reverse)
-          (newState, out)
+          out.asResult(newState)
       }
     }
   }
@@ -109,11 +109,9 @@ object GroupedSections {
     Transform.stateful[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]]((initialNonExtendedState, ExtendedSectionGrouperState(Map.empty))) { case ((nonExtendedState, extendedState), section) =>
       section match {
         case s: ExtendedSection if groupExtended(s) =>
-          val (newExtendedState, out) = groupExtendedSections.transform(extendedState, s)
-          ((nonExtendedState, newExtendedState), out)
+          groupExtendedSections.transform(extendedState, s).mapResult(nonExtendedState -> _)
         case s: Section =>
-          val (newNonExtendedState, out) = nonExtended.transform(nonExtendedState, s)
-          ((newNonExtendedState, extendedState), out)
+          nonExtended.transform(nonExtendedState, s).mapResult(_ -> extendedState)
       }
     }
   }

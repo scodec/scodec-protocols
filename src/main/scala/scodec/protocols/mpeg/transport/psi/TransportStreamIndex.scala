@@ -80,6 +80,6 @@ object TransportStreamIndex {
       case _ =>
         Chunk(Right(section))
     }
-    (updatedTsi.getOrElse(tsi), out)
+    out.asResult(updatedTsi.getOrElse(tsi))
   }
 }
