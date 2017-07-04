@@ -67,7 +67,7 @@ sealed abstract class Transform[-I,+O] {
 }
 
 object Transform {
-  type Aux[S0,I,O] = Transform[I,O] { type S = S0 }
+  type Aux[+S0,-I,+O] = Transform[I,O] { type S = S0 }
 
   def stateful[S0,I,O](initial0: S0)(f: (S0, I) => Segment[O,S0]): Transform.Aux[S0,I,O] =
     new Transform[I,O] {
