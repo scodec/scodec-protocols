@@ -24,9 +24,9 @@ case class PidStamped[+A](pid: Pid, value: A) {
 object PidStamped {
 
   /**
-   * Combinator that converts a `Transform.Aux[S, I, O]` in to a `Transform.Aux[S, PidStamped[I], PidStamped[O]]` such that
+   * Combinator that converts a `Transform[I, O]` in to a `Transform[PidStamped[I], PidStamped[O]]` such that
    * pidstamps are preserved on elements that flow through the stream.
    */
-  def preserve[S, I, O](t: Transform.Aux[S, I, O]): Transform.Aux[S, PidStamped[I], PidStamped[O]] =
+  def preserve[I, O](t: Transform[I, O]): Transform.Aux[t.S, PidStamped[I], PidStamped[O]] =
     t.lens(_.value, (psi, o) => psi.copy(value = o))
 }

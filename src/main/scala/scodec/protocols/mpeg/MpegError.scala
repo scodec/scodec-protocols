@@ -18,9 +18,9 @@ object MpegError {
     override def toString = message
   }
 
-  def joinErrors[S, I, O](t: Transform.Aux[S, I, Either[MpegError, O]]): Transform.Aux[S, Either[MpegError, I], Either[MpegError, O]] =
+  def joinErrors[I, O](t: Transform[I, Either[MpegError, O]]): Transform.Aux[t.S, Either[MpegError, I], Either[MpegError, O]] =
     t.semipass(_.fold(e => Left(Left(e)), i => Right(i)))
 
-  def passErrors[S, I, O](t: Transform.Aux[S, I, O]): Transform.Aux[S, Either[MpegError, I], Either[MpegError, O]] =
+  def passErrors[I, O](t: Transform[I, O]): Transform.Aux[t.S, Either[MpegError, I], Either[MpegError, O]] =
     t.right
 }
