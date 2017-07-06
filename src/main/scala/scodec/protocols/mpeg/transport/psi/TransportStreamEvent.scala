@@ -39,9 +39,14 @@ object TransportStreamEvent {
 
     val sectionsToTables: Transform.Aux[Map[Pid, group.S], PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, TableMessage]]] =
       Transform(Map.empty[Pid, group.S])({
-        case (state, PidStamped(pid, Right(section))) =>
-          val groupingState = state.getOrElse(pid, group.initial)
-          sectionsToTablesForPid.transform(groupingState, section).map(PidStamped(pid, _)).mapResult(state.updated(pid, _))
+        case (state, PidStamped(pid, e)) =>
+          e match {
+            case Right(section) =>
+              val groupingState = state.getOrElse(pid, group.initial)
+              sectionsToTablesForPid.transform(groupingState, section).map(PidStamped(pid, _)).mapResult(state.updated(pid, _))
+            case Left(err) =>
+              Segment(PidStamped(pid, Left(err))).asResult(state)
+          }
       }, { state =>
         state.foldLeft(Segment.empty: Segment[PidStamped[Either[MpegError, TableMessage]], Unit]) { case (acc, (pid, gs)) =>
           acc ++ sectionsToTablesForPid.onComplete(gs).map(PidStamped(pid, _))
