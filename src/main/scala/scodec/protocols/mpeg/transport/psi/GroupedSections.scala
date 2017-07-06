@@ -106,13 +106,13 @@ object GroupedSections {
     nonExtended: Transform.Aux[NonExtendedState, Section, Either[GroupingError, GroupedSections[Section]]],
     groupExtended: ExtendedSection => Boolean = _ => true
   ): Transform.Aux[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]] = {
-    Transform.stateful[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]]((initialNonExtendedState, ExtendedSectionGrouperState(Map.empty))) { case ((nonExtendedState, extendedState), section) =>
+    Transform[(NonExtendedState, ExtendedSectionGrouperState[ExtendedSection]), Section, Either[GroupingError, GroupedSections[Section]]]((initialNonExtendedState, ExtendedSectionGrouperState(Map.empty)))({ case ((nonExtendedState, extendedState), section) =>
       section match {
         case s: ExtendedSection if groupExtended(s) =>
           groupExtendedSections.transform(extendedState, s).mapResult(nonExtendedState -> _)
         case s: Section =>
           nonExtended.transform(nonExtendedState, s).mapResult(_ -> extendedState)
       }
-    }
+    }, { case (nonExtendedState, extendedState) => nonExtended.onComplete(nonExtendedState) ++ groupExtendedSections.onComplete(extendedState) })
   }
 }

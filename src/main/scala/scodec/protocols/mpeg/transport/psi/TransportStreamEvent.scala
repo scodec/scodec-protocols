@@ -3,6 +3,7 @@ package mpeg
 package transport
 package psi
 
+import fs2.Segment
 import scodec.bits.BitVector
 
 import psi.{ Table => TableMessage }
@@ -37,11 +38,15 @@ object TransportStreamEvent {
       }
 
     val sectionsToTables: Transform.Aux[Map[Pid, group.S], PidStamped[Either[MpegError, Section]], PidStamped[Either[MpegError, TableMessage]]] =
-      Transform.stateful(Map.empty[Pid, group.S]) {
+      Transform(Map.empty[Pid, group.S])({
         case (state, PidStamped(pid, Right(section))) =>
           val groupingState = state.getOrElse(pid, group.initial)
           sectionsToTablesForPid.transform(groupingState, section).map(PidStamped(pid, _)).mapResult(state.updated(pid, _))
-      }
+      }, { state =>
+        state.foldLeft(Segment.empty: Segment[PidStamped[Either[MpegError, TableMessage]], Unit]) { case (acc, (pid, gs)) =>
+          acc ++ sectionsToTablesForPid.onComplete(gs).map(PidStamped(pid, _))
+        }
+      })
 
     sectionsToTables.andThen(PidStamped.preserve(passErrors(TransportStreamIndex.build))).map { case PidStamped(pid, value) =>
       value match {

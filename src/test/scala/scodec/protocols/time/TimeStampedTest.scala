@@ -8,6 +8,7 @@ import scala.concurrent.duration._
 
 import java.time.Instant
 import cats.effect.IO
+import cats.implicits._
 import fs2._
 import scodec.bits._
 
@@ -27,18 +28,18 @@ class TimeStampedTest extends ProtocolsSpec {
           TimeStamped(1, 1),
           TimeStamped(2.3, 2))
 
-        data.through(TimeStamped.rate(1.second)(identity[Int])(0, _ + _)).toVector shouldBe Vector(
+        data.through(TimeStamped.rate(1.second)(identity[Int]).toPipe).toVector shouldBe Vector(
           TimeStamped(1, 3), TimeStamped(2, 1), TimeStamped(3, 2))
 
-        data.through(TimeStamped.rate(2.seconds)(identity[Int])(0, _ + _)).toVector shouldBe Vector(TimeStamped(2, 4), TimeStamped(4, 2))
+        data.through(TimeStamped.rate(2.seconds)(identity[Int]).toPipe).toVector shouldBe Vector(TimeStamped(2, 4), TimeStamped(4, 2))
       }
 
       "emits 0s when values are skipped over" in {
         val data = Stream(TimeStamped(0, 1), TimeStamped(3.3, 2))
-        data.through(TimeStamped.rate(1.second)(identity[Int])(0, _ + _)).toVector shouldBe Vector(
+        data.through(TimeStamped.rate(1.second)(identity[Int]).toPipe).toVector shouldBe Vector(
           TimeStamped(1, 1), TimeStamped(2, 0), TimeStamped(3, 0), TimeStamped(4, 2))
 
-        data.through(TimeStamped.withRate(1.second)(identity[Int])(0, _ + _)).toVector shouldBe Vector(
+        data.through(TimeStamped.withRate(1.second)(identity[Int]).toPipe).toVector shouldBe Vector(
           TimeStamped(0, Right(1)), TimeStamped(1, Left(1)), TimeStamped(2, Left(0)), TimeStamped(3, Left(0)), TimeStamped(3.3, Right(2)), TimeStamped(4, Left(2)))
       }
 
@@ -51,7 +52,7 @@ class TimeStampedTest extends ProtocolsSpec {
           TimeStamped(2.6, hex"deadbeef")
         )
 
-        val bitsPerSecond = data.through(TimeStamped.rate(1.second)((x: ByteVector) => x.size * 8L)(0L, _ + _))
+        val bitsPerSecond = data.through(TimeStamped.rate(1.second)((x: ByteVector) => x.size * 8L).toPipe)
 
         case class Average(samples: Int, value: Double)
         val zero = Average(0, 0)

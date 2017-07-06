@@ -6,6 +6,7 @@ import language.higherKinds
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
+import cats.Monoid
 import cats.effect.Effect
 
 import fs2._
@@ -53,8 +54,8 @@ object TimeStamped {
    *
    * @param f function which extracts a feature of `A`
    */
-  def perSecondRate[F[_], A, B](f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[B]] =
-    rate(1.second)(f)(zero, combine)
+  def perSecondRate[A, B: Monoid](f: A => B): Transform[TimeStamped[A], TimeStamped[B]] =
+    rate(1.second)(f)
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
@@ -66,11 +67,9 @@ object TimeStamped {
    * using `perSecondRate(_.size * 8)`, which yields a stream of the emitted bits per second.
    *
    * @param f function which extracts a feature of `A`
-   * @param zero identity for `combine`
-   * @param combine closed function on `B` which forms a monoid with `zero`
    */
-  def withPerSecondRate[F[_], A, B](f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[Either[B, A]]] =
-    withRate(1.second)(f)(zero, combine)
+  def withPerSecondRate[A, B: Monoid](f: A => B): Transform[TimeStamped[A], TimeStamped[Either[B, A]]] =
+    withRate(1.second)(f)
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
@@ -81,11 +80,14 @@ object TimeStamped {
    *
    * @param over time period over which to calculate
    * @param f function which extracts a feature of `A`
-   * @param zero identity for `combine`
-   * @param combine closed function on `B` which forms a monoid with `zero`
    */
-  def rate[F[_], A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[B]] =
-    in => withRate(over)(f)(zero, combine)(in).collect { case TimeStamped(ts, Left(b)) => TimeStamped(ts, b) }
+  def rate[A, B: Monoid](over: FiniteDuration)(f: A => B): Transform[TimeStamped[A], TimeStamped[B]] = {
+    val t = withRate(over)(f)
+    Transform(t.initial)(
+      (s,tsa) => t.transform(s,tsa).collect { case TimeStamped(ts, Left(b)) => TimeStamped(ts, b) },
+      s => t.onComplete(s).collect { case TimeStamped(ts, Left(b)) => TimeStamped(ts, b) }
+    )
+  }
 
   /**
    * Stream transducer that converts a stream of `TimeStamped[A]` in to a stream of
@@ -98,25 +100,31 @@ object TimeStamped {
    *
    * @param over time period over which to calculate
    * @param f function which extracts a feature of `A`
-   * @param zero identity for `combine`
-   * @param combine closed function on `B` which forms a monoid with `zero`
    */
-  def withRate[F[_], A, B](over: FiniteDuration)(f: A => B)(zero: B, combine: (B, B) => B): Pipe[F, TimeStamped[A], TimeStamped[Either[B, A]]] = {
+  def withRate[A, B](over: FiniteDuration)(f: A => B)(implicit B: Monoid[B]): Transform[TimeStamped[A], TimeStamped[Either[B, A]]] = {
     val overMillis = over.toMillis
-    def go(start: Instant, acc: B, s: Stream[F, TimeStamped[A]]): Pull[F, TimeStamped[Either[B, A]], Unit] = {
-      val end = start plusMillis overMillis
-      s.pull.uncons1.flatMap {
-        case Some((tsa, tl)) =>
-          if (tsa.time isBefore end) Pull.output1(tsa map Right.apply) >> go(start, combine(acc, f(tsa.value)), tl)
-          else Pull.output1(TimeStamped(end, Left(acc))) >> go(end, zero, tl.cons1(tsa))
-        case None =>
-          Pull.output1(TimeStamped(end, Left(acc)))
+    Transform[(Option[Instant], B), TimeStamped[A], TimeStamped[Either[B, A]]](None -> B.empty)({ case ((end, acc), tsa) =>
+      end match {
+        case Some(end) =>
+          if (tsa.time isBefore end) Segment(tsa map Right.apply).asResult(Some(end) -> B.combine(acc, f(tsa.value)))
+          else {
+            val bldr = List.newBuilder[TimeStamped[Either[B, A]]]
+            var e2 = end
+            var acc2 = acc
+            while (!(tsa.time isBefore e2)) {
+              bldr += TimeStamped(e2, Left(acc2))
+              acc2 = B.empty
+              e2 = e2 plusMillis overMillis
+            }
+            bldr += (tsa map Right.apply)
+            Segment.seq(bldr.result).asResult((Some(e2), f(tsa.value)))
+          }
+        case None => Segment(tsa map Right.apply).asResult((Some(tsa.time plusMillis overMillis), f(tsa.value)))
       }
-    }
-    in => in.pull.uncons1.flatMap {
-      case Some((tsa, tl)) => Pull.output1(tsa.map(Right.apply)) >> go(tsa.time, f(tsa.value), tl)
-      case None => Pull.done
-    }.stream
+    }, {
+      case (Some(end), acc) => Segment(TimeStamped(end, Left(acc)))
+      case (None, acc) => Segment.empty
+    })
   }
 
   /**

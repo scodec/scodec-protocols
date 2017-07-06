@@ -81,4 +81,19 @@ object TimeSeries {
     t.semilens(
       tsi => tsi.value.map(v => Right(TimeStamped(tsi.time, v))).getOrElse(Left(TimeSeriesValue.tick(tsi.time))),
       (_, tso) => tso.map(Some(_)))
+
+  /**
+   * Combinator that combines a `Transform[TimeSeriesValue[L],O]` and a `Transform[TimeSeriesValue[R],O]` in to a `Transform[TimeSeriesVlaue[Either[L,R],O]]`.
+   */
+  def choice[L,R,O](l: Transform[TimeSeriesValue[L],O], r: Transform[TimeSeriesValue[R],O]): Transform[TimeSeriesValue[Either[L, R]], O] =
+    Transform[(l.S, r.S), TimeSeriesValue[Either[L, R]], O]((l.initial, r.initial))({ case ((lState, rState), tsv) =>
+      tsv match {
+        case TimeStamped(t, Some(Left(lValue))) => l.transform(lState, TimeStamped(t, Some(lValue))).mapResult(_ -> rState)
+        case TimeStamped(t, Some(Right(rValue))) => r.transform(rState, TimeStamped(t, Some(rValue))).mapResult(lState -> _)
+        case TimeStamped(t, None) =>
+          val lSegment = l.transform(lState, TimeStamped(t, None))
+          val rSegment = r.transform(rState, TimeStamped(t, None))
+          lSegment.append(rSegment)
+      }
+    }, { case (lState, rState) => l.onComplete(lState) ++ r.onComplete(rState) })
 }
