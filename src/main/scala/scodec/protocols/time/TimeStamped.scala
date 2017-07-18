@@ -145,7 +145,7 @@ object TimeStamped {
    * This is particularly useful when timestamped data can be read in bulk (e.g., from a capture file)
    * but should be "played back" at real time speeds.
    */
-  def throttle[F[_], A](source: Stream[F, TimeStamped[A]], throttlingFactor: Double, tickResolution: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext, scheduler: Scheduler): Stream[F, TimeStamped[A]] = {
+  def throttle[F[_], A](scheduler: Scheduler, throttlingFactor: Double, tickResolution: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext): Pipe[F, TimeStamped[A], TimeStamped[A]] = {
 
     val ticksPerSecond = 1.second.toMillis / tickResolution.toMillis
 
@@ -192,7 +192,7 @@ object TimeStamped {
       }.stream
     }
 
-    (source through2 time.awakeEvery[F](tickResolution).as(()))(doThrottle)
+    source => (source through2 scheduler.awakeEvery[F](tickResolution).as(()))(doThrottle)
   }
 
   /**

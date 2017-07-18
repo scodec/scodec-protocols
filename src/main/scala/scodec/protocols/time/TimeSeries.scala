@@ -16,19 +16,19 @@ import fs2._
 object TimeSeries {
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def apply[F[_],A](source: Stream[F, TimeStamped[A]], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext, scheduler: Scheduler): TimeSeries[F, A] = {
+  def apply[F[_],A](source: Stream[F, TimeStamped[A]], scheduler: Scheduler, tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext): TimeSeries[F, A] = {
     val src: TimeSeries[F, A] = source.map(tsa => tsa.map(Some(_): Option[A]))
-    val ticks: TimeSeries[F, Nothing] = timeTicks(tickPeriod).map(tsu => tsu.map(_ => None))
+    val ticks: TimeSeries[F, Nothing] = timeTicks(scheduler, tickPeriod).map(tsu => tsu.map(_ => None))
     src merge ticks through TimeStamped.reorderLocally(reorderOver)
   }
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def lift[F[_],A](source: Stream[F, A], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext, scheduler: Scheduler): TimeSeries[F, A] =
-    apply(source map TimeStamped.now, tickPeriod, reorderOver)
+  def lift[F[_],A](source: Stream[F, A], scheduler: Scheduler, tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext): TimeSeries[F, A] =
+    apply(source map TimeStamped.now, scheduler, tickPeriod, reorderOver)
 
   /** Stream of time ticks spaced by `tickPeriod`. */
-  private def timeTicks[F[_]](tickPeriod: FiniteDuration)(implicit F: Effect[F], ec: ExecutionContext, scheduler: Scheduler): Stream[F, TimeStamped[Unit]] =
-    time.awakeEvery[F](tickPeriod) map { _ => TimeStamped.now(()) }
+  private def timeTicks[F[_]](scheduler: Scheduler, tickPeriod: FiniteDuration)(implicit F: Effect[F], ec: ExecutionContext): Stream[F, TimeStamped[Unit]] =
+    scheduler.awakeEvery[F](tickPeriod) map { _ => TimeStamped.now(()) }
 
   /**
    * Stream transducer that converts a stream of timestamped values with monotonically increasing timestamps in
