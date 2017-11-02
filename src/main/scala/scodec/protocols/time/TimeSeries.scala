@@ -43,7 +43,7 @@ object TimeSeries {
         case Some((hd,tl)) =>
           hd.splitWhile(_.time.toEpochMilli < nextTick.toEpochMilli) match {
             case Left((_,out)) =>
-              (if (out.isEmpty) Pull.pure(()) else Pull.output(Segment.catenated(out).map(_.toTimeSeriesValue))) >> go(nextTick, tl)
+              (if (out.isEmpty) Pull.pure(()) else Pull.output(Segment.catenated(out).map(_.toTimeSeriesValue))) *> go(nextTick, tl)
             case Right((prefix,suffix)) =>
               val out = if (prefix.isEmpty) Pull.pure(()) else Pull.output(Segment.catenated(prefix).map(_.toTimeSeriesValue))
               // we know suffix is non-empty and suffix.head has a time >= next tick time
@@ -53,15 +53,15 @@ object TimeSeries {
                   val tickCount = ((next.time.toEpochMilli - nextTick.toEpochMilli) / tickPeriodMillis + 1).toInt
                   val tickTimes = (0 until tickCount) map tickTime
                   val ticks = tickTimes map TimeSeriesValue.tick
-                  Pull.output(Segment.seq(ticks)) >> go(tickTime(tickCount), tl.cons(suffix))
+                  Pull.output(Segment.seq(ticks)) *> go(tickTime(tickCount), tl.cons(suffix))
               }
-              out >> rest
+              out *> rest
           }
         case None => Pull.done
       }
     }
     in => in.pull.uncons1.flatMap {
-      case Some((hd,tl)) => Pull.output1(hd.toTimeSeriesValue) >> go(hd.time plusMillis tickPeriodMillis, tl)
+      case Some((hd,tl)) => Pull.output1(hd.toTimeSeriesValue) *> go(hd.time plusMillis tickPeriodMillis, tl)
       case None => Pull.done
     }.stream
   }

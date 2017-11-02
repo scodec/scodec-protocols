@@ -165,8 +165,8 @@ object TimeStamped {
             if (chunk.isEmpty) read(upto)(tl, ticks)
             else {
               val (toOutput, pending) = takeUpto(chunk, upto)
-              if (pending.isEmpty) Pull.output(toOutput) >> read(upto)(tl, ticks)
-              else Pull.output(toOutput) >> awaitTick(upto, pending)(tl, ticks)
+              if (pending.isEmpty) Pull.output(toOutput) *> read(upto)(tl, ticks)
+              else Pull.output(toOutput) *> awaitTick(upto, pending)(tl, ticks)
             }
           case None => Pull.done
         }
@@ -178,16 +178,16 @@ object TimeStamped {
             val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
             val (toOutput, stillPending) = takeUpto(pending, newUpto)
             if (stillPending.isEmpty) {
-              Pull.output(toOutput) >> read(newUpto)(src, tl)
+              Pull.output(toOutput) *> read(newUpto)(src, tl)
             } else {
-              Pull.output(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
+              Pull.output(toOutput) *> awaitTick(newUpto, stillPending)(src, tl)
             }
           case None => Pull.done
         }
       }
 
       (src, ticks) => src.pull.uncons1.flatMap {
-        case Some((tsa, tl)) => Pull.output1(tsa) >> read(tsa.time)(tl, ticks)
+        case Some((tsa, tl)) => Pull.output1(tsa) *> read(tsa.time)(tl, ticks)
         case None => Pull.done
       }.stream
     }
@@ -276,7 +276,7 @@ object TimeStamped {
           else {
             val until = all.last._2.head.time.toEpochMilli - overMillis
             val (toOutput, toBuffer) = all span { case (x, _) => x <= until }
-            outputMapValues(toOutput) >> go(toBuffer, tl)
+            outputMapValues(toOutput) *> go(toBuffer, tl)
           }
         case None =>
           outputMapValues(buffered)
