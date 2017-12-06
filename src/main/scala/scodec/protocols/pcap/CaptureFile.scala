@@ -41,7 +41,7 @@ object CaptureFile {
 
   def streamDecoder[A](chunkSize: Int = 256)(f: GlobalHeader => Either[Err, (RecordHeader => StreamDecoder[A])]): StreamDecoder[A] = for {
     global <- decode.once[GlobalHeader]
-    decoderFn <- f(global).fold(decode.fail, decode.emit)
+    decoderFn <- f(global).fold(decode.raiseError, decode.emit)
     recordDecoder =
       RecordHeader.codec(global.ordering) flatMap { header =>
         decode.isolateBytes(header.includedLength) { decoderFn(header) }.strict

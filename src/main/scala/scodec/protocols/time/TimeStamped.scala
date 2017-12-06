@@ -156,7 +156,7 @@ object TimeStamped {
       def takeUpto(chunk: Chunk[TimeStamped[A]], upto: Instant): (Chunk[TimeStamped[A]], Chunk[TimeStamped[A]]) = {
         val uptoMillis = upto.toEpochMilli
         val toTake = chunk.indexWhere { _.time.toEpochMilli > uptoMillis }.getOrElse(chunk.size)
-        chunk.strict.splitAt(toTake)
+        chunk.splitAt(toTake)
       }
 
       def read(upto: Instant): PullFromSourceOrTicks = { (src, ticks) =>
@@ -165,8 +165,8 @@ object TimeStamped {
             if (chunk.isEmpty) read(upto)(tl, ticks)
             else {
               val (toOutput, pending) = takeUpto(chunk, upto)
-              if (pending.isEmpty) Pull.output(toOutput) *> read(upto)(tl, ticks)
-              else Pull.output(toOutput) *> awaitTick(upto, pending)(tl, ticks)
+              if (pending.isEmpty) Pull.outputChunk(toOutput) >> read(upto)(tl, ticks)
+              else Pull.outputChunk(toOutput) >> awaitTick(upto, pending)(tl, ticks)
             }
           case None => Pull.done
         }
@@ -178,16 +178,16 @@ object TimeStamped {
             val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
             val (toOutput, stillPending) = takeUpto(pending, newUpto)
             if (stillPending.isEmpty) {
-              Pull.output(toOutput) *> read(newUpto)(src, tl)
+              Pull.outputChunk(toOutput) >> read(newUpto)(src, tl)
             } else {
-              Pull.output(toOutput) *> awaitTick(newUpto, stillPending)(src, tl)
+              Pull.outputChunk(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
             }
           case None => Pull.done
         }
       }
 
       (src, ticks) => src.pull.uncons1.flatMap {
-        case Some((tsa, tl)) => Pull.output1(tsa) *> read(tsa.time)(tl, ticks)
+        case Some((tsa, tl)) => Pull.output1(tsa) >> read(tsa.time)(tl, ticks)
         case None => Pull.done
       }.stream
     }
@@ -263,7 +263,7 @@ object TimeStamped {
     val overMillis = over.toMillis
 
     def outputMapValues(m: SortedMap[Long, Vector[TimeStamped[A]]]) =
-      Pull.output(Chunk.seq(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }))
+      Pull.outputChunk(Chunk.seq(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }))
 
     def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]], s: Stream[F, TimeStamped[A]]): Pull[F, TimeStamped[A], Unit] = {
       s.pull.unconsChunk.flatMap {
@@ -276,7 +276,7 @@ object TimeStamped {
           else {
             val until = all.last._2.head.time.toEpochMilli - overMillis
             val (toOutput, toBuffer) = all span { case (x, _) => x <= until }
-            outputMapValues(toOutput) *> go(toBuffer, tl)
+            outputMapValues(toOutput) >> go(toBuffer, tl)
           }
         case None =>
           outputMapValues(buffered)

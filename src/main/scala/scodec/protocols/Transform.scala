@@ -44,7 +44,7 @@ sealed abstract class Transform[-I,+O] {
   def semilens[I2,O2](extract: I2 => Either[O2, I], inject: (I2, O) => O2): Transform.Aux[S,I2,O2] =
     Transform[S,I2,O2](initial)(
       (s,i2) => extract(i2).fold(
-        o2 => Chunk.singleton(o2).mapResult(_ => s),
+        o2 => Chunk.singleton(o2).toSegment.mapResult(_ => s),
         i => transform(s, i).map(s => inject(i2, s))),
       s => Segment.empty
     )
@@ -95,5 +95,5 @@ object Transform {
     stateful[Unit,I,O](())((u,i) => f(i))
 
   def lift[I,O](f: I => O): Transform.Aux[Unit,I,O] =
-    stateless(i => Chunk.singleton(f(i)))
+    stateless(i => Chunk.singleton(f(i)).toSegment)
 }

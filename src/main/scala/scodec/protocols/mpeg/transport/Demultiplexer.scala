@@ -219,7 +219,7 @@ object Demultiplexer {
           val newState = State(result.state.map { s => state.byPid.updated(pid, s) }.getOrElse(state.byPid - pid))
           val out = result.output.map { e => PidStamped(pid, e) }
           out.asResult(newState)
-        case Left(discontinuity) => Chunk.singleton(PidStamped(discontinuity.pid, Left(discontinuity.value))).asResult(State(state.byPid - discontinuity.pid))
+        case Left(discontinuity) => Segment.singleton(PidStamped(discontinuity.pid, Left(discontinuity.value))).asResult(State(state.byPid - discontinuity.pid))
       }
     }
 
