@@ -35,5 +35,5 @@ object PcapMpegExample extends App {
       } yield packets
   }
 
-  decoder.decodeMmap[IO](mpegPcapChannel).runLog.unsafeRunSync.foreach(println)
+  decoder.decodeMmap[IO](mpegPcapChannel).compile.toVector.unsafeRunSync.foreach(println)
 }
