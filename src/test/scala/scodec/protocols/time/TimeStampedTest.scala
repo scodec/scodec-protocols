@@ -7,7 +7,7 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 import java.time.Instant
-import cats.effect.IO
+import cats.effect._
 import cats.implicits._
 import fs2._
 import scodec.bits._
@@ -118,24 +118,19 @@ class TimeStampedTest extends ProtocolsSpec {
     }
 
     "support throttling a time stamped source" in {
-      val executor = java.util.concurrent.Executors.newScheduledThreadPool(4)
-      try {
-        implicit val ec: ExecutionContext = ExecutionContext.fromExecutorService(executor)
-        implicit val scheduler: Scheduler = Scheduler.fromScheduledExecutorService(executor)
-        def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), value.toLong)
-        val source = Stream(ts(0), ts(1), ts(2), ts(3), ts(4)).covary[IO]
-        def time[A](f: => A): Long = {
-          val start = System.nanoTime
-          val _ = f
-          System.nanoTime - start
-        }
-        val realtime = source.through(TimeStamped.throttle(scheduler, 1.0)).compile.drain
-        time(realtime.unsafeRunTimed(5.seconds)) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
-        val doubletime = source.through(TimeStamped.throttle(scheduler, 2.0)).compile.drain
-        time(doubletime.unsafeRunTimed(3.seconds)) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
-      } finally {
-        executor.shutdown()
+      implicit val contextShiftIO: ContextShift[IO] = IO.contextShift(ExecutionContext.global)
+      implicit val timerIO: Timer[IO] = IO.timer(ExecutionContext.global)
+      def ts(value: Int) = TimeStamped(Instant.ofEpochSecond(value.toLong), value.toLong)
+      val source = Stream(ts(0), ts(1), ts(2), ts(3), ts(4)).covary[IO]
+      def time[A](f: => A): Long = {
+        val start = System.nanoTime
+        val _ = f
+        System.nanoTime - start
       }
+      val realtime = source.through(TimeStamped.throttle[IO, Long](1.0)).compile.drain
+      time(realtime.unsafeRunTimed(5.seconds)) shouldBe 4.seconds.toNanos +- 250.millis.toNanos
+      val doubletime = source.through(TimeStamped.throttle[IO, Long](2.0)).compile.drain
+      time(doubletime.unsafeRunTimed(3.seconds)) shouldBe 2.seconds.toNanos +- 250.millis.toNanos
     }
 
     "support lifting a Transform.Aux[S, TimeStamped[A], TimeStamped[B]] in to a Transform.Aux[S, TimeStamped[Either[A, C]], TimeStamped[Either[B, C]]]" in {

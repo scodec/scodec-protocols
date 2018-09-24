@@ -5,10 +5,10 @@ import language.higherKinds
 
 import java.time.Instant
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-import cats.effect.Effect
+import cats.Functor
+import cats.effect.{Concurrent, Timer}
 
 import fs2._
 
@@ -16,19 +16,19 @@ import fs2._
 object TimeSeries {
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def apply[F[_],A](source: Stream[F, TimeStamped[A]], scheduler: Scheduler, tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext): TimeSeries[F, A] = {
+  def apply[F[_]: Concurrent: Timer, A](source: Stream[F, TimeStamped[A]], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds): TimeSeries[F, A] = {
     val src: TimeSeries[F, A] = source.map(tsa => tsa.map(Some(_): Option[A]))
-    val ticks: TimeSeries[F, Nothing] = timeTicks(scheduler, tickPeriod).map(tsu => tsu.map(_ => None))
+    val ticks: TimeSeries[F, Nothing] = timeTicks(tickPeriod).map(tsu => tsu.map(_ => None))
     src merge ticks through TimeStamped.reorderLocally(reorderOver)
   }
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def lift[F[_],A](source: Stream[F, A], scheduler: Scheduler, tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext): TimeSeries[F, A] =
-    apply(source map TimeStamped.now, scheduler, tickPeriod, reorderOver)
+  def lift[F[_]: Concurrent: Timer, A](source: Stream[F, A], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds): TimeSeries[F, A] =
+    apply(source map TimeStamped.now, tickPeriod, reorderOver)
 
   /** Stream of time ticks spaced by `tickPeriod`. */
-  private def timeTicks[F[_]](scheduler: Scheduler, tickPeriod: FiniteDuration)(implicit F: Effect[F], ec: ExecutionContext): Stream[F, TimeStamped[Unit]] =
-    scheduler.awakeEvery[F](tickPeriod) map { _ => TimeStamped.now(()) }
+  private def timeTicks[F[_]: Functor: Timer](tickPeriod: FiniteDuration): Stream[F, TimeStamped[Unit]] =
+    Stream.awakeEvery[F](tickPeriod) map { _ => TimeStamped.now(()) }
 
   /**
    * Stream transducer that converts a stream of timestamped values with monotonically increasing timestamps in
@@ -41,20 +41,18 @@ object TimeSeries {
       def tickTime(x: Int) = nextTick plusMillis (x * tickPeriodMillis)
       s.pull.uncons.flatMap {
         case Some((hd,tl)) =>
-          hd.force.splitWhile(_.time.toEpochMilli < nextTick.toEpochMilli) match {
-            case Left((_,out)) =>
-              (if (out.isEmpty) Pull.pure(()) else Pull.output(Segment.catenated(out.map(Segment.chunk)).map(_.toTimeSeriesValue))) >> go(nextTick, tl)
-            case Right((prefix,suffix)) =>
-              val out = if (prefix.isEmpty) Pull.pure(()) else Pull.output(Segment.catenated(prefix.map(Segment.chunk)).map(_.toTimeSeriesValue))
+          hd.indexWhere(_.time.toEpochMilli >= nextTick.toEpochMilli) match {
+            case None =>
+              if (hd.isEmpty) Pull.pure(()) else Pull.output(hd.map(_.toTimeSeriesValue)) >> go(nextTick, tl)
+            case Some(idx) =>
+              val (prefix, suffix) = hd.splitAt(idx)
+              val out = if (prefix.isEmpty) Pull.pure(()) else Pull.output(prefix.map(_.toTimeSeriesValue))
               // we know suffix is non-empty and suffix.head has a time >= next tick time
-              val rest = suffix.take(1).force.uncons1 match {
-                case Left(_) => sys.error("not possible; suffix has at least 1 element")
-                case Right((next, _)) =>
-                  val tickCount = ((next.time.toEpochMilli - nextTick.toEpochMilli) / tickPeriodMillis + 1).toInt
-                  val tickTimes = (0 until tickCount) map tickTime
-                  val ticks = tickTimes map TimeSeriesValue.tick
-                  Pull.output(Segment.seq(ticks)) >> go(tickTime(tickCount), tl.cons(suffix))
-              }
+              val next = suffix(0)
+              val tickCount = ((next.time.toEpochMilli - nextTick.toEpochMilli) / tickPeriodMillis + 1).toInt
+              val tickTimes = (0 until tickCount) map tickTime
+              val ticks = tickTimes map TimeSeriesValue.tick
+              val rest = Pull.output(Chunk.seq(ticks)) >> go(tickTime(tickCount), tl.cons(suffix))
               out >> rest
           }
         case None => Pull.done
@@ -88,12 +86,16 @@ object TimeSeries {
   def choice[L,R,O](l: Transform[TimeSeriesValue[L],O], r: Transform[TimeSeriesValue[R],O]): Transform[TimeSeriesValue[Either[L, R]], O] =
     Transform[(l.S, r.S), TimeSeriesValue[Either[L, R]], O]((l.initial, r.initial))({ case ((lState, rState), tsv) =>
       tsv match {
-        case TimeStamped(t, Some(Left(lValue))) => l.transform(lState, TimeStamped(t, Some(lValue))).mapResult(_ -> rState)
-        case TimeStamped(t, Some(Right(rValue))) => r.transform(rState, TimeStamped(t, Some(rValue))).mapResult(lState -> _)
+        case TimeStamped(t, Some(Left(lValue))) => 
+          val (s, out) = l.transform(lState, TimeStamped(t, Some(lValue)))
+          (s -> rState, out)
+        case TimeStamped(t, Some(Right(rValue))) =>
+          val (s, out) = r.transform(rState, TimeStamped(t, Some(rValue)))
+          (lState -> s, out)
         case TimeStamped(t, None) =>
-          val lSegment = l.transform(lState, TimeStamped(t, None))
-          val rSegment = r.transform(rState, TimeStamped(t, None))
-          lSegment.append(rSegment)
+          val (ls, lout) = l.transform(lState, TimeStamped(t, None))
+          val (rs, rout) = r.transform(rState, TimeStamped(t, None))
+          ((ls, rs), Chunk.concat(List(lout, rout)))
       }
-    }, { case (lState, rState) => l.onComplete(lState) ++ r.onComplete(rState) })
+    }, { case (lState, rState) => Chunk.concat(List(l.onComplete(lState), r.onComplete(rState))) })
 }

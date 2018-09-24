@@ -51,14 +51,14 @@ object Demultiplexer {
     }
   }
 
-  private case class StepResult[+A](state: Option[DecodeState], output: Segment[Either[DemultiplexerError, A],Unit]) {
-    def ++[AA >: A](that: StepResult[AA]): StepResult[AA] = StepResult(that.state, output ++ that.output)
+  private case class StepResult[+A](state: Option[DecodeState], output: Chunk[Either[DemultiplexerError, A]]) {
+    def ++[AA >: A](that: StepResult[AA]): StepResult[AA] = StepResult(that.state, Chunk.concat(List(output, that.output)))
   }
   private object StepResult {
-    def noOutput(state: Option[DecodeState]): StepResult[Nothing] = apply(state, Segment.empty)
-    def state(state: DecodeState): StepResult[Nothing] = StepResult(Some(state), Segment.empty)
-    def oneResult[A](state: Option[DecodeState], output: A): StepResult[A] = apply(state, Segment.singleton(Right(output)))
-    def oneError(state: Option[DecodeState], err: DemultiplexerError): StepResult[Nothing] = apply(state, Segment.singleton(Left(err)))
+    def noOutput(state: Option[DecodeState]): StepResult[Nothing] = apply(state, Chunk.empty)
+    def state(state: DecodeState): StepResult[Nothing] = StepResult(Some(state), Chunk.empty)
+    def oneResult[A](state: Option[DecodeState], output: A): StepResult[A] = apply(state, Chunk.singleton(Right(output)))
+    def oneError(state: Option[DecodeState], err: DemultiplexerError): StepResult[Nothing] = apply(state, Chunk.singleton(Left(err)))
   }
 
   /**
@@ -145,8 +145,8 @@ object Demultiplexer {
             decoded ++ processHeader(remainder, false, payloadUnitStartAfterData)
           case Attempt.Failure(err) =>
             val out = {
-              if (err.isInstanceOf[ResetDecodeState]) Segment.empty
-              else Segment.singleton(Left(DemultiplexerError.Decoding(
+              if (err.isInstanceOf[ResetDecodeState]) Chunk.empty
+              else Chunk.singleton(Left(DemultiplexerError.Decoding(
                 awaitingBody.headerBits ++
                   awaitingBody.neededBits.
                     map { n => awaitingBody.bitsPostHeader.take(n) }.
@@ -218,8 +218,11 @@ object Demultiplexer {
           val result = handlePacket(oldStateForPid, packet)
           val newState = State(result.state.map { s => state.byPid.updated(pid, s) }.getOrElse(state.byPid - pid))
           val out = result.output.map { e => PidStamped(pid, e) }
-          out.asResult(newState)
-        case Left(discontinuity) => Segment.singleton(PidStamped(discontinuity.pid, Left(discontinuity.value))).asResult(State(state.byPid - discontinuity.pid))
+          (newState, out)
+        case Left(discontinuity) =>
+          val newState = State(state.byPid - discontinuity.pid)
+          val out = Chunk.singleton(PidStamped(discontinuity.pid, Left(discontinuity.value)))
+          (newState, out)
       }
     }
 

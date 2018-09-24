@@ -116,7 +116,8 @@ object Packet {
           Some(err)
         }
       }.getOrElse(None)
+      val newState = state + (pid -> currentContinuityCounter)
       val out = err.map { e => Chunk(e, Right(packet)) }.getOrElse(Chunk.singleton(Right(packet)))
-      out.toSegment.asResult(state + (pid -> currentContinuityCounter))
+      (newState, out)
     }
 }

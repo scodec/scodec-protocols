@@ -3,7 +3,8 @@ package mpeg
 package transport
 package psi
 
-import fs2.Segment
+import cats.data.Chain
+import fs2.Chunk
 import scodec.bits.BitVector
 
 import psi.{ Table => TableMessage }
@@ -43,14 +44,15 @@ object TransportStreamEvent {
           e match {
             case Right(section) =>
               val groupingState = state.getOrElse(pid, group.initial)
-              sectionsToTablesForPid.transform(groupingState, section).map(PidStamped(pid, _)).mapResult(state.updated(pid, _))
+              val (s, out) = sectionsToTablesForPid.transform(groupingState, section)
+              (state.updated(pid, s), out.map(PidStamped(pid, _)))
             case Left(err) =>
-              Segment(PidStamped(pid, Left(err))).asResult(state)
+              (state, Chunk.singleton(PidStamped(pid, Left(err))))
           }
       }, { state =>
-        state.foldLeft(Segment.empty: Segment[PidStamped[Either[MpegError, TableMessage]], Unit]) { case (acc, (pid, gs)) =>
-          acc ++ sectionsToTablesForPid.onComplete(gs).map(PidStamped(pid, _))
-        }
+        Chunk.concat(state.foldLeft(Chain.empty[Chunk[PidStamped[Either[MpegError, TableMessage]]]]) { case (acc, (pid, gs)) =>
+          acc :+ sectionsToTablesForPid.onComplete(gs).map(PidStamped(pid, _))
+        }.toList)
       })
 
     sectionsToTables.andThen(PidStamped.preserve(passErrors(TransportStreamIndex.build))).map { case PidStamped(pid, value) =>
