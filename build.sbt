@@ -1,13 +1,14 @@
 scodecModule := "scodec-protocols"
 
-scodecPrimaryModule
-scodecPrimaryModuleJvm
+enablePlugins(ScodecPrimaryModuleSettings)
+enablePlugins(ScodecPrimaryModuleJVMSettings)
 
 crossScalaVersions := crossScalaVersions.value.filter { v => v.startsWith("2.11.") || v.startsWith("2.12.") }
 
 contributors ++= Seq(Contributor("mpilquist", "Michael Pilquist"))
 
 rootPackage := "scodec.protocols"
+scmInfo := Some(ScmInfo(url("https://github.com/scodec/scodec-protocols"), "git@github.com:scodec/scodec-protocols.git"))
 
 libraryDependencies ++= Seq(
   "org.scodec" %% "scodec-core" % "1.10.3",
