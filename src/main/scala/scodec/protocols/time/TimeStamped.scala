@@ -163,7 +163,7 @@ object TimeStamped {
       }
 
       def read(upto: Instant): PullFromSourceOrTicks = { (src, ticks) =>
-        src.pull.unconsChunk.flatMap {
+        src.pull.uncons.flatMap {
           case Some((chunk, tl)) =>
             if (chunk.isEmpty) read(upto)(tl, ticks)
             else {
@@ -269,7 +269,7 @@ object TimeStamped {
       Pull.output(Chunk.seq(m.foldLeft(Chain.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }.toList))
 
     def go(buffered: SortedMap[Long, Chain[TimeStamped[A]]], s: Stream[F, TimeStamped[A]]): Pull[F, TimeStamped[A], Unit] = {
-      s.pull.unconsChunk.flatMap {
+      s.pull.uncons.flatMap {
         case Some((hd, tl)) =>
           val all = Chain.fromSeq(hd.toList).foldLeft(buffered) { (acc, tsa) =>
             val k = tsa.time.toEpochMilli
