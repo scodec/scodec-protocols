@@ -8,8 +8,8 @@ sealed abstract class Transform[-I,+O] {
 
   type S
   val initial: S
-  val transform: (S,I) => Segment[O,S]
-  val onComplete: S => Segment[O,Unit]
+  val transform: (S,I) => fs2.Chunk[O,S]
+  val onComplete: S => fs2.Chunk[O,Unit]
 
   def toPipe[F[_]]: Pipe[F,I,O] =
     _.pull.
@@ -33,7 +33,7 @@ sealed abstract class Transform[-I,+O] {
     Transform[S2,I,O](g(initial))((s2,i) => transform(f(s2),i).mapResult(g), s2 => onComplete(f(s2)))
 
   def lens[I2,O2](get: I2 => I, set: (I2, O) => O2): Transform.Aux[S,I2,O2] =
-    Transform[S,I2,O2](initial)((s,i2) => transform(s, get(i2)).map(s => set(i2, s)), s => Segment.empty)
+    Transform[S,I2,O2](initial)((s,i2) => transform(s, get(i2)).map(s => set(i2, s)), s => fs2.Chunk.empty)
 
   def first[A]: Transform.Aux[S,(I, A), (O, A)] =
     lens(_._1, (t, o) => (o, t._2))
@@ -46,7 +46,7 @@ sealed abstract class Transform[-I,+O] {
       (s,i2) => extract(i2).fold(
         o2 => Chunk.singleton(o2).toSegment.mapResult(_ => s),
         i => transform(s, i).map(s => inject(i2, s))),
-      s => Segment.empty
+      s => fs2.Chunk.empty
     )
 
   def semipass[I2,O2 >: O](extract: I2 => Either[O2, I]): Transform.Aux[S,I2,O2] = semilens(extract, (_, o) => o)
@@ -77,7 +77,7 @@ sealed abstract class Transform[-I,+O] {
 object Transform {
   type Aux[S0,-I,+O] = Transform[I,O] { type S = S0 }
 
-  def apply[S0,I,O](initial0: S0)(transform0: (S0, I) => Segment[O,S0], onComplete0: S0 => Segment[O,Unit]): Transform.Aux[S0,I,O] =
+  def apply[S0,I,O](initial0: S0)(transform0: (S0, I) => fs2.Chunk[O,S0], onComplete0: S0 => fs2.Chunk[O,Unit]): Transform.Aux[S0,I,O] =
     new Transform[I,O] {
       type S = S0
       val initial = initial0
@@ -85,13 +85,13 @@ object Transform {
       val onComplete = onComplete0
     }
 
-  def stateful[S,I,O](initial: S)(transform: (S, I) => Segment[O,S]): Transform.Aux[S,I,O] =
-    apply(initial)(transform, _ => Segment.empty)
+  def stateful[S,I,O](initial: S)(transform: (S, I) => fs2.Chunk[O,S]): Transform.Aux[S,I,O] =
+    apply(initial)(transform, _ => fs2.Chunk.empty)
 
   def stateful1[S,I,O](initial: S)(f: (S, I) => (S, O)): Transform.Aux[S,I,O] =
-    stateful[S,I,O](initial) { (s,i) => val (s2,o) = f(s,i); Segment.singleton(o).asResult(s2) }
+    stateful[S,I,O](initial) { (s,i) => val (s2,o) = f(s,i); fs2.Chunk.singleton(o).asResult(s2) }
 
-  def stateless[I,O](f: I => Segment[O,Unit]): Transform.Aux[Unit,I,O] =
+  def stateless[I,O](f: I => fs2.Chunk[O,Unit]): Transform.Aux[Unit,I,O] =
     stateful[Unit,I,O](())((u,i) => f(i))
 
   def lift[I,O](f: I => O): Transform.Aux[Unit,I,O] =

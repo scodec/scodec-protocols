@@ -106,7 +106,7 @@ object TimeStamped {
     Transform[(Option[Instant], B), TimeStamped[A], TimeStamped[Either[B, A]]](None -> B.empty)({ case ((end, acc), tsa) =>
       end match {
         case Some(end) =>
-          if (tsa.time isBefore end) Segment(tsa map Right.apply).asResult(Some(end) -> B.combine(acc, f(tsa.value)))
+          if (tsa.time isBefore end) fs2.Chunk(tsa map Right.apply).asResult(Some(end) -> B.combine(acc, f(tsa.value)))
           else {
             val bldr = List.newBuilder[TimeStamped[Either[B, A]]]
             var e2 = end
@@ -117,13 +117,13 @@ object TimeStamped {
               e2 = e2 plusMillis overMillis
             }
             bldr += (tsa map Right.apply)
-            Segment.seq(bldr.result).asResult((Some(e2), f(tsa.value)))
+            fs2.Chunk.seq(bldr.result).asResult((Some(e2), f(tsa.value)))
           }
-        case None => Segment(tsa map Right.apply).asResult((Some(tsa.time plusMillis overMillis), f(tsa.value)))
+        case None => fs2.Chunk(tsa map Right.apply).asResult((Some(tsa.time plusMillis overMillis), f(tsa.value)))
       }
     }, {
-      case (Some(end), acc) => Segment(TimeStamped(end, Left(acc)))
-      case (None, acc) => Segment.empty
+      case (Some(end), acc) => fs2.Chunk(TimeStamped(end, Left(acc)))
+      case (None, acc) => fs2.Chunk.empty
     })
   }
 
@@ -145,7 +145,7 @@ object TimeStamped {
    * This is particularly useful when timestamped data can be read in bulk (e.g., from a capture file)
    * but should be "played back" at real time speeds.
    */
-  def throttle[F[_], A](scheduler: Scheduler, throttlingFactor: Double, tickResolution: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext): Pipe[F, TimeStamped[A], TimeStamped[A]] = {
+  def throttle[F[_], A](scheduler: Timer[F], throttlingFactor: Double, tickResolution: FiniteDuration = 100.milliseconds)(implicit F: Effect[F], ec: ExecutionContext): Pipe[F, TimeStamped[A], TimeStamped[A]] = {
 
     val ticksPerSecond = 1.second.toMillis / tickResolution.toMillis
 
@@ -160,13 +160,13 @@ object TimeStamped {
       }
 
       def read(upto: Instant): PullFromSourceOrTicks = { (src, ticks) =>
-        src.pull.unconsChunk.flatMap {
+        src.pull.uncons.flatMap {
           case Some((chunk, tl)) =>
             if (chunk.isEmpty) read(upto)(tl, ticks)
             else {
               val (toOutput, pending) = takeUpto(chunk, upto)
-              if (pending.isEmpty) Pull.outputChunk(toOutput) >> read(upto)(tl, ticks)
-              else Pull.outputChunk(toOutput) >> awaitTick(upto, pending)(tl, ticks)
+              if (pending.isEmpty) Pull.output(toOutput) >> read(upto)(tl, ticks)
+              else Pull.output(toOutput) >> awaitTick(upto, pending)(tl, ticks)
             }
           case None => Pull.done
         }
@@ -178,9 +178,9 @@ object TimeStamped {
             val newUpto = upto.plusMillis(((1000 / ticksPerSecond) * throttlingFactor).toLong)
             val (toOutput, stillPending) = takeUpto(pending, newUpto)
             if (stillPending.isEmpty) {
-              Pull.outputChunk(toOutput) >> read(newUpto)(src, tl)
+              Pull.output(toOutput) >> read(newUpto)(src, tl)
             } else {
-              Pull.outputChunk(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
+              Pull.output(toOutput) >> awaitTick(newUpto, stillPending)(src, tl)
             }
           case None => Pull.done
         }
@@ -192,7 +192,7 @@ object TimeStamped {
       }.stream
     }
 
-    source => (source through2 scheduler.awakeEvery[F](tickResolution).as(()))(doThrottle)
+    source => (source through2 Stream.awakeEvery[F](tickResolution).as(()))(doThrottle)
   }
 
   /**
@@ -210,7 +210,7 @@ object TimeStamped {
    * to the writer side of the writer.
    */
   def increasingW[F[_], A]: Pipe[F, TimeStamped[A], Either[TimeStamped[A], TimeStamped[A]]] = {
-    _.scanSegments(Long.MinValue) { (last, segment) =>
+    _.scanChunks(Long.MinValue) { (last, segment) =>
       segment.mapAccumulate(last) { (last, tsa) =>
         val now = tsa.time.toEpochMilli
         if (last <= now) (now, Right(tsa)) else (last, Left(tsa))
@@ -263,10 +263,10 @@ object TimeStamped {
     val overMillis = over.toMillis
 
     def outputMapValues(m: SortedMap[Long, Vector[TimeStamped[A]]]) =
-      Pull.outputChunk(Chunk.seq(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }))
+      Pull.output(Chunk.seq(m.foldLeft(Vector.empty[TimeStamped[A]]) { case (acc, (_, tss)) => acc ++ tss }))
 
     def go(buffered: SortedMap[Long, Vector[TimeStamped[A]]], s: Stream[F, TimeStamped[A]]): Pull[F, TimeStamped[A], Unit] = {
-      s.pull.unconsChunk.flatMap {
+      s.pull.uncons.flatMap {
         case Some((hd, tl)) =>
           val all = hd.toVector.foldLeft(buffered) { (acc, tsa) =>
             val k = tsa.time.toEpochMilli
