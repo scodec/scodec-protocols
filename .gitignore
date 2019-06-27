@@ -14,3 +14,6 @@ project/plugins/project/
 
 # VI specific
 tags
+
+.bloop
+.metals

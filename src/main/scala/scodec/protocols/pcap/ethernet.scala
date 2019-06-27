@@ -25,7 +25,7 @@ object EthernetFrameHeader {
     ("ethertype"   | uint16)
   }.as[EthernetFrameHeader]
 
-  val sdecoder: StreamDecoder[EthernetFrameHeader] = decode.once[pcap.EthernetFrameHeader]
+  val sdecoder: StreamDecoder[EthernetFrameHeader] = StreamDecoder.once(codec)
 }
 
 object EtherType {

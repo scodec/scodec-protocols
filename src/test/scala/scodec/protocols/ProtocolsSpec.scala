@@ -1,9 +1,10 @@
 package scodec.protocols
 
-import org.scalatest.{ WordSpec, Matchers }
-import org.scalatest.prop.GeneratorDrivenPropertyChecks
+import org.scalatest.Matchers
+import org.scalatest.wordspec.AnyWordSpec
+import org.scalatestplus.scalacheck.ScalaCheckDrivenPropertyChecks
 
 abstract class ProtocolsSpec
-  extends WordSpec
+  extends AnyWordSpec
   with Matchers
-  with GeneratorDrivenPropertyChecks
+  with ScalaCheckDrivenPropertyChecks

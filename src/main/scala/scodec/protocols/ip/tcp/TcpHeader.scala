@@ -49,6 +49,6 @@ object TcpHeader {
   } ) }.dropUnits.as[TcpHeader]
 
   def sdecoder(protocol: Int): StreamDecoder[TcpHeader] =
-    if (protocol == ip.Protocols.Tcp) decode.once[TcpHeader]
-    else decode.empty
+    if (protocol == ip.Protocols.Tcp) StreamDecoder.once(codec)
+    else StreamDecoder.empty
 }
