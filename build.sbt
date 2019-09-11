@@ -24,6 +24,15 @@ libraryDependencies ++= {
   if (scalaBinaryVersion.value startsWith "2.10") Seq(compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)) else Nil
 }
 
+scalacOptions --= {
+  CrossVersion.partialVersion(scalaVersion.value) match {
+    case Some((2, v)) if v >= 13 =>
+      Seq("-Yno-adapted-args", "-Ywarn-unused-import")
+    case _ =>
+      Seq()
+  }
+}
+
 OsgiKeys.exportPackage := Seq("!scodec.bits,!scodec.codecs,!scodec.stream,scodec.protocols.*;version=${Bundle-Version}")
 
 OsgiKeys.importPackage := Seq(
