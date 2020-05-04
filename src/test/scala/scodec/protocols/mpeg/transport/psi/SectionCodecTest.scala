@@ -76,7 +76,7 @@ class SectionCodecTest extends ProtocolsSpec {
       val withDiscontinuity = packets.updated(0, packets.head.copy(header = packets.head.header.copy(continuityCounter = ContinuityCounter(15))))
 
       val p = Stream.emits(withDiscontinuity) through Demultiplexer.demultiplex(sectionCodec).toPipe
-      assertEquals(p.toList, List(PidStamped(Pid(0), Left(DemultiplexerError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2))))))
+      assertEquals(p.toList, List(PidStamped(Pid(0), Left(DemultiplexerError.Discontinuity(ContinuityCounter(15), ContinuityCounter(2), 1)))))
     }
 
     test("upon decoding failure of a section, remaining sections in packet are decoded") {

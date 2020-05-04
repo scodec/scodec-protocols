@@ -139,10 +139,13 @@ object Packet {
       val pid = packet.header.pid
       val currentContinuityCounter = packet.header.continuityCounter
       val err = state.get(pid).map { lastContinuityCounter =>
-        if (lastContinuityCounter.next == currentContinuityCounter) {
+        val expectedContinuityCounter = 
+          if (packet.header.adaptationFieldControl == 0 || packet.header.adaptationFieldControl == 2) lastContinuityCounter else lastContinuityCounter.next
+        if (expectedContinuityCounter == currentContinuityCounter) {
           None
         } else {
-          val err: Either[PidStamped[DemultiplexerError.Discontinuity], Packet] = Left(PidStamped(pid, DemultiplexerError.Discontinuity(lastContinuityCounter, currentContinuityCounter)))
+          val err: Either[PidStamped[DemultiplexerError.Discontinuity], Packet] = 
+            Left(PidStamped(pid, DemultiplexerError.Discontinuity(lastContinuityCounter, currentContinuityCounter, packet.header.adaptationFieldControl)))
           Some(err)
         }
       }.getOrElse(None)
