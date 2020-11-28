@@ -16,7 +16,7 @@ libraryDependencies ++= Seq(
   "org.scodec" %% "scodec-stream" % "1.2.1",
   "co.fs2" %% "fs2-core" % "2.0.1",
   "org.scalatest" %% "scalatest" % "3.0.8" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.13.5" % "test"
+  "org.scalacheck" %% "scalacheck" % "1.15.1" % "test"
 )
 
 libraryDependencies ++= {
