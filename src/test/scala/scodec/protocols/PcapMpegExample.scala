@@ -30,7 +30,7 @@
 
 package scodec.protocols
 
-import cats.effect.IO
+import cats.effect.{IO, IOApp}
 import scodec.protocols.time.TimeStamped
 import scodec.stream.StreamDecoder
 import pcap.{ CaptureFile, LinkType }
@@ -42,28 +42,33 @@ import pcap.{ CaptureFile, LinkType }
  *  - of UDP datagrams
  *  - containing MPEG transport stream packets
  */
-object PcapMpegExample extends App {
+object PcapMpegExample extends IOApp.Simple {
 
   case class IpAndPort(address: ip.v4.Address, port: ip.Port)
   case class CapturedPacket(source: IpAndPort, destination: IpAndPort, packet: mpeg.transport.Packet)
 
-  val decoder: StreamDecoder[TimeStamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF {
-    case LinkType.Ethernet =>
-      for {
-        ethernetHeader <- pcap.EthernetFrameHeader.sdecoder
-        ipHeader <- ip.v4.SimpleHeader.sdecoder(ethernetHeader)
-        udpDatagram <- ip.udp.DatagramHeader.sdecoder(ipHeader.protocol)
-        packets <- StreamDecoder.tryMany(mpeg.transport.Packet.codec).map { p =>
-          CapturedPacket(
-            IpAndPort(ipHeader.sourceIp, udpDatagram.sourcePort),
-            IpAndPort(ipHeader.destinationIp, udpDatagram.destinationPort),
-            p)
-        }
-      } yield packets
-  }
-  
-  import cats.effect.unsafe.implicits.global
+  val run: IO[Unit] = {
+    val decoder: StreamDecoder[TimeStamped[CapturedPacket]] = CaptureFile.payloadStreamDecoderPF {
+      case LinkType.Ethernet =>
+        for {
+          ethernetHeader <- pcap.EthernetFrameHeader.sdecoder
+          ipHeader <- ip.v4.SimpleHeader.sdecoder(ethernetHeader)
+          udpDatagram <- ip.udp.DatagramHeader.sdecoder(ipHeader.protocol)
+          packets <- StreamDecoder.tryMany(mpeg.transport.Packet.codec).map { p =>
+            CapturedPacket(
+              IpAndPort(ipHeader.sourceIp, udpDatagram.sourcePort),
+              IpAndPort(ipHeader.destinationIp, udpDatagram.destinationPort),
+              p)
+          }
+        } yield packets
+    }
 
-  val capture = java.nio.file.Paths.get("path/to/pcap")
-  fs2.io.file.Files[IO].readAll(capture, 4096).through(decoder.toPipeByte).map(_.toString).showLinesStdOut.compile.drain.unsafeRunSync()
+    val capture = java.nio.file.Paths.get("path/to/pcap")
+    fs2.io.file.Files[IO].readAll(capture, 4096)
+      .through(decoder.toPipeByte)
+      .map(_.toString)
+      .showLinesStdOut
+      .compile
+      .drain
+  }
 }
