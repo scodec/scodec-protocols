@@ -61,14 +61,14 @@ object AdaptationField {
     ) { def asAF: AdaptationField = AdaptationField(Some(flags), pcr, opcr, spliceCountdown, transportPrivateData) }
 
     private val pcrCodec: Codec[Clock27MHz] =
-      ((ulong(33) <~ ignore(6)) ~ uint(9)).xmapc { case (base, ext) =>
+      ((ulong(33) <~ ignore(6)) :: uint(9)).xmap[Clock27MHz]({ case (base, ext) =>
         Clock27MHz(base * 300 + ext)
-      } { clock =>
+      }, { clock =>
         val value = clock.value
         val base = value / 300
         val ext = (value % 300).toInt
         (base, ext)
-      }
+      })
     private val transportPrivateData: Codec[BitVector] = variableSizeBits(uint8, bits)
     private val nonEmptyAFCodec: Codec[NonEmptyAF] = "adaptation_field" | {
       variableSizeBytes(uint8,
