@@ -1,7 +1,7 @@
 addCommandAlias("fmt", "; compile:scalafmt; test:scalafmt; scalafmtSbt")
 addCommandAlias("fmtCheck", "; compile:scalafmtCheck; test:scalafmtCheck; scalafmtSbtCheck")
 
-ThisBuild / baseVersion := "2.0"
+ThisBuild / baseVersion := "3.0"
 
 ThisBuild / organization := "org.scodec"
 ThisBuild / organizationName := "Scodec"
