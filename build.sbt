@@ -1,36 +1,68 @@
-scodecModule := "scodec-protocols"
+addCommandAlias("fmt", "; compile:scalafmt; test:scalafmt; scalafmtSbt")
+addCommandAlias("fmtCheck", "; compile:scalafmtCheck; test:scalafmtCheck; scalafmtSbtCheck")
 
-enablePlugins(ScodecPrimaryModuleSettings)
-enablePlugins(ScodecPrimaryModuleJVMSettings)
+ThisBuild / baseVersion := "2.0"
 
-crossScalaVersions := crossScalaVersions.value.filter { v => v.startsWith("2.11.") || v.startsWith("2.12.") }
-releaseCrossBuild := true
+ThisBuild / organization := "org.scodec"
+ThisBuild / organizationName := "Scodec"
 
-contributors ++= Seq(Contributor("mpilquist", "Michael Pilquist"))
+ThisBuild / homepage := Some(url("https://github.com/scodec/scodec-protocols"))
+ThisBuild / startYear := Some(2013)
 
-rootPackage := "scodec.protocols"
-scmInfo := Some(ScmInfo(url("https://github.com/scodec/scodec-protocols"), "git@github.com:scodec/scodec-protocols.git"))
+ThisBuild / crossScalaVersions := Seq("3.0.0-M2")
 
-libraryDependencies ++= Seq(
-  "org.scodec" %% "scodec-core" % "1.11.2",
-  "org.scodec" %% "scodec-stream" % "1.2.1",
-  "co.fs2" %% "fs2-core" % "2.0.1",
-  "org.scalatest" %% "scalatest" % "3.0.8" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.15.1" % "test"
+ThisBuild / strictSemVer := false
+
+ThisBuild / versionIntroduced := Map(
+  "3.0.0-M2" -> "2.0.99"
 )
 
-libraryDependencies ++= {
-  if (scalaBinaryVersion.value startsWith "2.10") Seq(compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)) else Nil
-}
+ThisBuild / githubWorkflowJavaVersions := Seq("adopt@1.8")
 
-OsgiKeys.exportPackage := Seq("!scodec.bits,!scodec.codecs,!scodec.stream,scodec.protocols.*;version=${Bundle-Version}")
+ThisBuild / spiewakMainBranches := List("main")
 
-OsgiKeys.importPackage := Seq(
-  """scodec.*;version="$<range;[==,=+);$<@>>"""",
-  """scala.*;version="$<range;[==,=+);$<@>>"""",
-  """fs2.*;version="$<range;[==,=+);$<@>>"""",
-  """shapeless.*;version="$<range;[==,=+);$<@>>"""",
-  "*"
+ThisBuild / scmInfo := Some(
+  ScmInfo(url("https://github.com/scodec/scodec-protocols"), "git@github.com:scodec/scodec-protocols.git")
 )
 
-parallelExecution in Test := false
+ThisBuild / licenses := List(
+  ("BSD-3-Clause", url("https://github.com/scodec/scodec-protocols/blob/main/LICENSE"))
+)
+
+ThisBuild / testFrameworks += new TestFramework("munit.Framework")
+
+ThisBuild / publishGithubUser := "mpilquist"
+ThisBuild / publishFullName := "Michael Pilquist"
+
+ThisBuild / fatalWarningsInCI := false
+
+ThisBuild / mimaBinaryIssueFilters ++= Seq(
+)
+
+val core = project
+  .in(file("."))
+  .enablePlugins(SonatypeCiRelease, SbtOsgi)
+  .settings(
+    name := "scodec-protocols",
+    libraryDependencies ++= Seq(
+      "co.fs2" %%% "fs2-io" % "3.0.0-M4",
+      "org.scodec" %%% "scodec-core" % "2.0.0-M2",
+      "org.scodec" %%% "scodec-stream" % "2.0-78-fd1ec2e",
+      "org.scalameta" %%% "munit-scalacheck" % "0.7.19" % Test
+    ),
+    unmanagedResources in Compile ++= {
+      val base = baseDirectory.value
+      (base / "NOTICE") +: (base / "LICENSE") +: ((base / "licenses") * "LICENSE_*").get
+
+    },
+    OsgiKeys.privatePackage := Nil,
+    OsgiKeys.exportPackage := Seq("scodec.stream.*;version=${Bundle-Version}"),
+    OsgiKeys.importPackage := Seq(
+      """scala.*;version="$<range;[==,=+);$<@>>"""",
+      """fs2.*;version="$<range;[==,=+);$<@>>"""",
+      """scodec.*;version="$<range;[==,=+);$<@>>"""",
+      "*"
+    ),
+    OsgiKeys.additionalHeaders := Map("-removeheaders" -> "Include-Resource,Private-Package")
+  )
+

@@ -1,3 +1,33 @@
+/*
+ * Copyright (c) 2013, Scodec
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 package scodec.protocols
 package time
 
@@ -8,7 +38,7 @@ import java.time.Instant
 import scala.concurrent.duration._
 
 import cats.Functor
-import cats.effect.{Concurrent, Timer}
+import cats.effect.Temporal
 
 import fs2._
 
@@ -16,18 +46,18 @@ import fs2._
 object TimeSeries {
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def apply[F[_]: Concurrent: Timer, A](source: Stream[F, TimeStamped[A]], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds): TimeSeries[F, A] = {
+  def apply[F[_]: Temporal, A](source: Stream[F, TimeStamped[A]], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds): TimeSeries[F, A] = {
     val src: TimeSeries[F, A] = source.map(tsa => tsa.map(Some(_): Option[A]))
     val ticks: TimeSeries[F, Nothing] = timeTicks(tickPeriod).map(tsu => tsu.map(_ => None))
     src merge ticks through TimeStamped.reorderLocally(reorderOver)
   }
 
   /** Stream of either time ticks (spaced by `tickPeriod`) or values from the source stream. */
-  def lift[F[_]: Concurrent: Timer, A](source: Stream[F, A], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds): TimeSeries[F, A] =
+  def lift[F[_]: Temporal, A](source: Stream[F, A], tickPeriod: FiniteDuration = 1.second, reorderOver: FiniteDuration = 100.milliseconds): TimeSeries[F, A] =
     apply(source map TimeStamped.now, tickPeriod, reorderOver)
 
   /** Stream of time ticks spaced by `tickPeriod`. */
-  private def timeTicks[F[_]: Functor: Timer](tickPeriod: FiniteDuration): Stream[F, TimeStamped[Unit]] =
+  private def timeTicks[F[_]: Temporal](tickPeriod: FiniteDuration): Stream[F, TimeStamped[Unit]] =
     Stream.awakeEvery[F](tickPeriod) map { _ => TimeStamped.now(()) }
 
   /**

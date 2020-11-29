@@ -1,3 +1,33 @@
+/*
+ * Copyright (c) 2013, Scodec
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 package scodec.protocols.mpeg
 package transport
 package psi
@@ -32,7 +62,7 @@ object VideoStreamDescriptor {
   val codec: Codec[VideoStreamDescriptor] = {
     ("multiple_frame_rate_flag" | bool) ::
     ("frame_rate_code" | uint4) ::
-    (("MPEG_1_only_flag" | bool) >>:~ { mpeg1Only =>
+    (("MPEG_1_only_flag" | bool).flatPrepend { mpeg1Only =>
       ("constrained_parameter" | bool) ::
       ("still_picture_flag" | bool) ::
       ("MPEG_1_only_attributes" | conditional(mpeg1Only, Codec[Mpeg1Only]))
@@ -94,7 +124,7 @@ object HierarchyDescriptor {
 case class RegistrationDescriptor(formatIdentifier: ByteVector, additionalIdentificationInfo: ByteVector) extends TransportStreamDescriptor with ProgramStreamDescriptor
 object RegistrationDescriptor {
   val codec: Codec[RegistrationDescriptor] = {
-    (("format_identifier" | bytes(4)) ~ bytes).flattenLeftPairs
+    (("format_identifier" | bytes(4)) :: bytes)
   }.as[RegistrationDescriptor]
 }
 
@@ -143,7 +173,7 @@ object VideoWindowDescriptor {
 case class CADescriptor(caSystemId: Int, caPid: Pid, privateData: ByteVector) extends TransportStreamDescriptor with ProgramStreamDescriptor
 object CADescriptor {
   val codec: Codec[CADescriptor] = {
-    (("CA_system_id" | uint16) ~ (reserved(3) ~> ("CA_PID" | Codec[Pid])) ~ bytes).flattenLeftPairs
+    ("CA_system_id" | uint16) :: reserved(3) :: ("CA_PID" | Codec[Pid]) :: bytes
   }.as[CADescriptor]
 }
 
@@ -205,7 +235,7 @@ object MultiplexBufferUtilizationDescriptor {
 case class CopyrightDescriptor(copyrightIdentifier: ByteVector, additionalCopyrightInfo: ByteVector) extends TransportStreamDescriptor with ProgramStreamDescriptor
 object CopyrightDescriptor {
   val codec: Codec[CopyrightDescriptor] = {
-    (bytes(4) ~ bytes).flattenLeftPairs
+    bytes(4) :: bytes
   }.as[CopyrightDescriptor]
 }
 
@@ -328,7 +358,7 @@ case class UnknownDescriptor(tag: Int, length: Int, data: ByteVector)
 object UnknownDescriptor {
   val codec: Codec[UnknownDescriptor] = {
     ("descriptor_tag" | uint8) ::
-    (("descriptor_length" | uint8) >>:~ { length =>
+    (("descriptor_length" | uint8).flatPrepend { length =>
       ("descriptor_data" | bytes(length)).hlist
     })
   }.as[UnknownDescriptor]
@@ -365,9 +395,7 @@ object Descriptor {
     .typecase(33, MuxCodeDescriptor.codec)
     .typecase(34, FmxBufferSizeDescriptor.codec)
     .typecase(35, MultiplexBufferDescriptor.codec)
-    .framing(new CodecTransformation {
-      def apply[X](c: Codec[X]) = variableSizeBytes(uint8, c)
-    })
+    .framing([x] => (c: Codec[x]) => variableSizeBytes(uint8, c))
 
   val codec: Codec[Descriptor] = discriminatorFallback(UnknownDescriptor.codec, knownCodec)
 

@@ -1,10 +1,38 @@
+/*
+ * Copyright (c) 2013, Scodec
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 package scodec.protocols.mpeg
 
 import scodec.bits._
 import scodec.Codec
 import scodec.codecs._
-
-import shapeless._
 
 sealed abstract class PesScramblingControl
 object PesScramblingControl {
@@ -91,7 +119,7 @@ object PesPacketHeader {
   case class PStdBuffer(scale: Boolean, size: Int)
   object PStdBuffer {
     implicit val codec: Codec[PStdBuffer] = {
-      (constant(bin"01") :~>: bool :: uint(13)).as[PStdBuffer]
+      (constant(bin"01") ~> bool :: uint(13)).as[PStdBuffer]
     }
   }
 
@@ -105,7 +133,7 @@ object PesPacketHeader {
   )
   object Extension {
     implicit val codec: Codec[Extension] = {
-      Codec[ExtensionFlags] >>:~ { flags =>
+      Codec[ExtensionFlags].flatPrepend { flags =>
         ("pes_private_data"                | conditional(flags.pesPrivateDataFlag, bits(128))) ::
         ("pack_header_field"               | conditional(flags.packHeaderFieldFlag, variableSizeBytes(uint8, bits))) ::
         ("program_packet_sequence_counter" | conditional(flags.programPacketSequenceCounterFlag, Codec[ProgramPacketSequenceCounter])) ::
@@ -119,17 +147,17 @@ object PesPacketHeader {
 
   private def tsCodec(prefix: BitVector) = {
     (constant(prefix) :: bits(3) :: marker :: bits(15) :: marker :: bits(15) :: marker).dropUnits.xmap[Long](
-      { case a :: b :: c :: HNil => (a ++ b ++ c).toLong() },
+      { (a, b, c) => (a ++ b ++ c).toLong() },
       l => {
         val b = BitVector.fromLong(l).drop(31)
-        b.take(3) :: b.drop(3).take(15) :: b.drop(18) :: HNil
+        (b.take(3), b.drop(3).take(15), b.drop(18))
       }
     )
   }
 
   private val escrCodec: Codec[Long] = {
     (ignore(2) :: bits(3) :: marker :: bits(15) :: marker :: bits(15) :: marker :: uint(9) :: marker).dropUnits.xmap[Long](
-      { case a :: b :: c :: ext :: HNil =>
+      { case (a, b, c, ext) =>
         val base = (a ++ b ++ c).toLong()
         base * 300 + ext
       },
@@ -137,19 +165,19 @@ object PesPacketHeader {
         val base = (l / 300) % (2L << 32)
         val b = BitVector.fromLong(base).drop(31)
         val ext = (l % 300).toInt
-        b.take(3) :: b.drop(3).take(15) :: b.drop(18) :: ext :: HNil
+        (b.take(3), b.drop(3).take(15), b.drop(18), ext)
       }
     )
   }
 
   implicit val codec: Codec[PesPacketHeader] = {
-    constant(bin"10") :~>:
+    constant(bin"10") ~> 
     ("pes_scrambling_control"                  | PesScramblingControl.codec   ) ::
     ("pes_priority"                            | bool                         ) ::
     ("data_alignment_indicator"                | bool                         ) ::
     ("copyright"                               | bool                         ) ::
     ("original_or_copy"                        | bool                         ) ::
-    (("flags"                                  | Codec[Flags]                 ) >>:~ { flags =>
+    (("flags"                                  | Codec[Flags]                 ).flatPrepend { flags =>
       variableSizeBytes(uint8,
         ("pts"                                 | conditional(flags.ptsFlag, tsCodec(bin"0011"))                   ) ::
         ("dts"                                 | conditional(flags.dtsFlag, tsCodec(bin"0001"))                   ) ::
