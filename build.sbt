@@ -41,7 +41,7 @@ ThisBuild / mimaBinaryIssueFilters ++= Seq(
 
 val core = project
   .in(file("."))
-  .enablePlugins(SonatypeCiRelease, SbtOsgi)
+  .enablePlugins(SonatypeCiReleasePlugin, SbtOsgi)
   .settings(
     name := "scodec-protocols",
     libraryDependencies ++= Seq(
