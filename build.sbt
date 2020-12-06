@@ -45,7 +45,7 @@ val core = project
   .settings(
     name := "scodec-protocols",
     libraryDependencies ++= Seq(
-      "co.fs2" %%% "fs2-io" % "3.0.0-M4",
+      "co.fs2" %%% "fs2-io" % "3.0-7-fb3689a",
       "org.scodec" %%% "scodec-core" % "2.0.0-M2",
       "org.scodec" %%% "scodec-stream" % "2.0-78-fd1ec2e",
       "org.scalameta" %%% "munit-scalacheck" % "0.7.19" % Test
