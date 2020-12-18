@@ -48,7 +48,7 @@ val core = project
       "co.fs2" %%% "fs2-io" % "3.0.0-M4",
       "org.scodec" %%% "scodec-core" % "2.0.0-M2",
       "org.scodec" %%% "scodec-stream" % "2.0-78-fd1ec2e",
-      "org.scalameta" %%% "munit-scalacheck" % "0.7.19" % Test
+      "org.scalameta" %%% "munit-scalacheck" % "0.7.20" % Test
     ),
     unmanagedResources in Compile ++= {
       val base = baseDirectory.value
