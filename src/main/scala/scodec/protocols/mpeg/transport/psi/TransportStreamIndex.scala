@@ -45,14 +45,14 @@ sealed abstract class TransportStreamIndex {
 
   def programMapRecords(program: ProgramNumber, streamType: StreamType): Either[LookupError, List[ProgramMapRecord]] =
     for {
-      p <- pat.toRight(LookupError.MissingProgramAssociation).right
-      _ <- p.programByPid.get(program).toRight(LookupError.UnknownProgram).right
-      q <- pmt(program).right
-      pmrs <- q.componentStreamMapping.get(streamType).toRight(LookupError.UnknownStreamType).right
+      p <- pat.toRight(LookupError.MissingProgramAssociation)
+      _ <- p.programByPid.get(program).toRight(LookupError.UnknownProgram)
+      q <- pmt(program)
+      pmrs <- q.componentStreamMapping.get(streamType).toRight(LookupError.UnknownStreamType)
     } yield pmrs
 
   def programManRecord(program: ProgramNumber, streamType: StreamType): Either[LookupError, ProgramMapRecord] =
-    programMapRecords(program, streamType).right.map { _.head }
+    programMapRecords(program, streamType).map { _.head }
 
   def withPat(pat: ProgramAssociationTable): TransportStreamIndex
   def withPmt(pmt: ProgramMapTable): TransportStreamIndex
@@ -81,7 +81,7 @@ object TransportStreamIndex {
 
     def withPat(pat: ProgramAssociationTable): TransportStreamIndex = {
       val programs = pat.programByPid.keys.toSet
-      copy(pat = Some(pat), pmts = pmts.filterKeys(programs).toMap)
+      copy(pat = Some(pat), pmts = pmts.view.filterKeys(programs).toMap)
     }
 
     def withPmt(pmt: ProgramMapTable): TransportStreamIndex = {

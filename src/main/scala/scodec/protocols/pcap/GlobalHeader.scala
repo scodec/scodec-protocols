@@ -52,7 +52,7 @@ object GlobalHeader {
     def sizeBound = SizeBound.exact(32)
 
     def encode(bo: ByteOrdering) =
-      endiannessDependent(uint32, uint32L)(bo).encode(MagicNumber)
+      endiannessDependent(uint32, uint32L)(using bo).encode(MagicNumber)
 
     def decode(buf: BitVector) =
       uint32.decode(buf).flatMap {

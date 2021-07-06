@@ -76,7 +76,7 @@ object ProgramMapTable {
   implicit val tableSupport: TableSupport[ProgramMapTable] = new TableSupport[ProgramMapTable] {
     def tableId = ProgramMapSection.TableId
     def toTable(gs: GroupedSections[Section]) =
-      gs.narrow[ProgramMapSection].toRight("Not PMT sections").right.flatMap { sections =>
+      gs.narrow[ProgramMapSection].toRight("Not PMT sections").flatMap { sections =>
         if (sections.tail.isEmpty) Right(fromSection(sections.head))
         else Left(s"PMT supports only 1 section but got ${sections.list.size}")
     }

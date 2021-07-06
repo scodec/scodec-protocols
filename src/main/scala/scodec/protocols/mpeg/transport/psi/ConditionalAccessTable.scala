@@ -85,7 +85,7 @@ object ConditionalAccessTable {
       else Left(s"sections have diferring $name: " + extracted.mkString(", "))
     }
     for {
-      version <- extract("versions", _.extension.version).right
+      version <- extract("versions", _.extension.version)
     } yield {
       val current = sections.list.foldLeft(false) { (acc, s) => acc || s.extension.current }
       ConditionalAccessTable(
@@ -102,7 +102,7 @@ object ConditionalAccessTable {
   implicit val tableSupport: TableSupport[ConditionalAccessTable] = new TableSupport[ConditionalAccessTable] {
     def tableId = ConditionalAccessSection.TableId
     def toTable(gs: GroupedSections[Section]) =
-      gs.narrow[ConditionalAccessSection].toRight(s"Not CAT sections").right.flatMap { sections => fromSections(sections) }
+      gs.narrow[ConditionalAccessSection].toRight(s"Not CAT sections").flatMap { sections => fromSections(sections) }
     def toSections(cat: ConditionalAccessTable) = ConditionalAccessTable.toSections(cat)
   }
 }

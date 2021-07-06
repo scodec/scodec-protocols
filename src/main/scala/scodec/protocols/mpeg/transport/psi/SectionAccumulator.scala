@@ -44,12 +44,12 @@ private[psi] class SectionAccumulator[A <: ExtendedSection] private (val section
 
     val sectionNumber = section.extension.sectionNumber
     for {
-      _ <- checkEquality("table ids")(_.tableId).right
-      _ <- checkEquality("table id extensions")(_.extension.tableIdExtension).right
-      _ <- checkEquality("versions")(_.extension.version).right
-      _ <- checkEquality("last section numbers")(_.extension.lastSectionNumber).right
-      _ <- validate("invalid section number")(sectionNumber <= sections.head.extension.lastSectionNumber).right
-      _ <- validate("duplicate section number")(!sectionByNumber.contains(sectionNumber)).right
+      _ <- checkEquality("table ids")(_.tableId)
+      _ <- checkEquality("table id extensions")(_.extension.tableIdExtension)
+      _ <- checkEquality("versions")(_.extension.version)
+      _ <- checkEquality("last section numbers")(_.extension.lastSectionNumber)
+      _ <- validate("invalid section number")(sectionNumber <= sections.head.extension.lastSectionNumber)
+      _ <- validate("duplicate section number")(!sectionByNumber.contains(sectionNumber))
     } yield new SectionAccumulator(GroupedSections(section, sections.list), sectionByNumber + (section.extension.sectionNumber -> section))
   }
 

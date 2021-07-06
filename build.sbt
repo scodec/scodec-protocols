@@ -9,13 +9,9 @@ ThisBuild / organizationName := "Scodec"
 ThisBuild / homepage := Some(url("https://github.com/scodec/scodec-protocols"))
 ThisBuild / startYear := Some(2013)
 
-ThisBuild / crossScalaVersions := Seq("3.0.0-M2")
+ThisBuild / crossScalaVersions := Seq("3.0.0")
 
 ThisBuild / strictSemVer := false
-
-ThisBuild / versionIntroduced := Map(
-  "3.0.0-M2" -> "2.0.99"
-)
 
 ThisBuild / githubWorkflowJavaVersions := Seq("adopt@1.8")
 
@@ -45,12 +41,11 @@ val core = project
   .settings(
     name := "scodec-protocols",
     libraryDependencies ++= Seq(
-      "co.fs2" %%% "fs2-io" % "3.0.0-M4",
-      "org.scodec" %%% "scodec-core" % "2.0.0-M2",
-      "org.scodec" %%% "scodec-stream" % "2.0-78-fd1ec2e",
-      "org.scalameta" %%% "munit-scalacheck" % "0.7.20" % Test
+      "org.scodec" %%% "scodec-stream" % "3.0.1",
+      "co.fs2" %%% "fs2-io" % "3.0.6" % Test,
+      "org.scalameta" %%% "munit-scalacheck" % "0.7.26" % Test
     ),
-    unmanagedResources in Compile ++= {
+    Compile / unmanagedResources ++= {
       val base = baseDirectory.value
       (base / "NOTICE") +: (base / "LICENSE") +: ((base / "licenses") * "LICENSE_*").get
 

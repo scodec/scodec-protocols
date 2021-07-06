@@ -67,7 +67,7 @@ object PcapMpegExample extends IOApp.Simple {
     fs2.io.file.Files[IO].readAll(capture, 4096)
       .through(decoder.toPipeByte)
       .map(_.toString)
-      .showLinesStdOut
+      .foreach(IO.println)
       .compile
       .drain
   }

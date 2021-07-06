@@ -69,8 +69,8 @@ object ProgramAssociationTable {
       else Left(s"sections have diferring $name: " + extracted.mkString(", "))
     }
     for {
-      tsid <- extract("TSIDs", _.tsid).right
-      version <- extract("versions", _.extension.version).right
+      tsid <- extract("TSIDs", _.tsid)
+      version <- extract("versions", _.extension.version)
     } yield {
       val current = sections.list.foldLeft(false) { (acc, s) => acc || s.extension.current }
       ProgramAssociationTable(
@@ -87,7 +87,7 @@ object ProgramAssociationTable {
   implicit val tableSupport: TableSupport[ProgramAssociationTable] = new TableSupport[ProgramAssociationTable] {
     def tableId = ProgramAssociationSection.TableId
     def toTable(gs: GroupedSections[Section]) =
-      gs.narrow[ProgramAssociationSection].toRight("Not PAT sections").right.flatMap { sections => fromSections(sections) }
+      gs.narrow[ProgramAssociationSection].toRight("Not PAT sections").flatMap { sections => fromSections(sections) }
     def toSections(pat: ProgramAssociationTable) = ProgramAssociationTable.toSections(pat)
   }
 }

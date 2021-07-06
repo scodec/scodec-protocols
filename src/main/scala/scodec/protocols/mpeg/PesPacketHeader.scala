@@ -147,7 +147,7 @@ object PesPacketHeader {
 
   private def tsCodec(prefix: BitVector) = {
     (constant(prefix) :: bits(3) :: marker :: bits(15) :: marker :: bits(15) :: marker).dropUnits.xmap[Long](
-      { (a, b, c) => (a ++ b ++ c).toLong() },
+      { case (a, b, c) => (a ++ b ++ c).toLong() },
       l => {
         val b = BitVector.fromLong(l).drop(31)
         (b.take(3), b.drop(3).take(15), b.drop(18))

@@ -79,7 +79,7 @@ object TableSupport {
     new TableSupport[A] {
       def tableId = tid
       def toTable(gs: GroupedSections[Section]) =
-        gs.narrow[A].toRight(s"Not a ${reflect.ClassTag[A]}").right.flatMap { sections =>
+        gs.narrow[A].toRight(s"Not a ${reflect.ClassTag[A]}").flatMap { sections =>
           if (sections.tail.isEmpty) Right(sections.head)
           else Left(s"${reflect.ClassTag[A]} supports only 1 section but got ${sections.list.size}")
         }

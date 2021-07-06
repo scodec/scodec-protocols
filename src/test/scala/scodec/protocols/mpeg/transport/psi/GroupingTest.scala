@@ -57,7 +57,7 @@ class GroupingTest extends ProtocolsSpec {
     val patB = pat3.copy(tsid = TransportStreamId(pat3.tsid.value + 1), programByPid = pat3.programByPid.map { case (prg, Pid(n)) => prg -> Pid(n + 1)} )
 
     val sections = Stream.emits(patA.toSections.list) interleave Stream.emits(patB.toSections.list)
-    val p = sections.through(des).map { _.right.flatMap(ProgramAssociationTable.fromSections) }
+    val p = sections.through(des).map { _.flatMap(ProgramAssociationTable.fromSections) }
     assertEquals(p.toList, List(Right(patA), Right(patB)))
   }
 }

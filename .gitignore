@@ -1,20 +1,19 @@
 *.class
 *.log
-
-# sbt specific
+tags
 dist/*
 target/
 lib_managed/
 src_managed/
 project/boot/
 project/plugins/project/
-
-# Scala-IDE specific
+/.idea
 .scala_dependencies
-.bsp
 .bloop
+.metals
 project/metals.sbt
+.dotty-ide-artifact
+.dotty-ide.json
+.bsp
 .vscode
-
-# VI specific
-tags
+project/project

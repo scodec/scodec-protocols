@@ -58,7 +58,7 @@ sealed abstract class Transform[-I,+O] {
       ((sp, s2p), out)
     }, { case (s,s2) =>
       val (s3, out) = Transform.flatMapAccumulate(onComplete(s))(s2)(t.transform)
-      Chunk.concat(List(out, t.onComplete(s3)))
+      out ++ t.onComplete(s3)
     })
 
   def map[O2](f: O => O2): Transform.Aux[S,I,O2] =
@@ -117,7 +117,7 @@ sealed abstract class Transform[-I,+O] {
           val (s2p, o2s) = t.transform(s2,i2)
           ((s, s2p), o2s)
       }
-    }, { case (s,s2) => Chunk.concat(List(onComplete(s), t.onComplete(s2))) })
+    }, { case (s,s2) => onComplete(s) ++ t.onComplete(s2) })
 
   def either[I2,O2](t: Transform[I2,O2]): Transform.Aux[(S,t.S),Either[I,I2],Either[O,O2]] =
     Transform[(S,t.S),Either[I,I2],Either[O,O2]]((initial, t.initial))({ case ((s,s2),e) =>
@@ -156,10 +156,9 @@ object Transform {
     stateless(i => Chunk.singleton(f(i)))
 
   private def flatMapAccumulate[S, O, O2](c: Chunk[O])(s: S)(f: (S, O) => (S, Chunk[O2])): (S, Chunk[O2]) = {
-    val (s2, acc) = c.foldLeft(s -> Chain.empty[Chunk[O2]]) { case ((s, acc), o) =>
+    c.foldLeft(s -> Chunk.empty[O2]) { case ((s, acc), o) =>
       val (s2, o2s) = f(s, o)
-      (s2, acc :+ o2s)
+      (s2, acc ++ o2s)
     }
-    (s2, Chunk.concat(acc.toList))
   }
 }

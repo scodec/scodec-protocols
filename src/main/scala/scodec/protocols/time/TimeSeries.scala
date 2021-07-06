@@ -125,7 +125,7 @@ object TimeSeries {
         case TimeStamped(t, None) =>
           val (ls, lout) = l.transform(lState, TimeStamped(t, None))
           val (rs, rout) = r.transform(rState, TimeStamped(t, None))
-          ((ls, rs), Chunk.concat(List(lout, rout)))
+          ((ls, rs), lout ++ rout)
       }
-    }, { case (lState, rState) => Chunk.concat(List(l.onComplete(lState), r.onComplete(rState))) })
+    }, { case (lState, rState) => l.onComplete(lState) ++ r.onComplete(rState) })
 }
