@@ -42,7 +42,7 @@ val core = project
     name := "scodec-protocols",
     libraryDependencies ++= Seq(
       "org.scodec" %%% "scodec-stream" % "3.0.1",
-      "co.fs2" %%% "fs2-io" % "3.0.6" % Test,
+      "co.fs2" %%% "fs2-io" % "3.1.3" % Test,
       "org.scalameta" %%% "munit-scalacheck" % "0.7.27" % Test
     ),
     Compile / unmanagedResources ++= {
